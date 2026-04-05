@@ -1048,7 +1048,6 @@ bool Sample::CreatePTPipeline(engine::ShaderFactory& shaderFactory)
 {
     {
         std::vector<donut::engine::ShaderMacro> shaderMacros;
-		// shaderMacros.push_back(donut::engine::ShaderMacro({ "USE_RTXDI", "0" }));
         m_exportVBufferCS = m_shaderFactory->CreateShader("app/ProcessingPasses/ExportVisibilityBuffer.hlsl", "main", &shaderMacros, nvrhi::ShaderType::Compute);
         nvrhi::ComputePipelineDesc pipelineDesc;
 		pipelineDesc.bindingLayouts = { m_bindingLayout, m_bindlessLayout };
@@ -1251,8 +1250,7 @@ void Sample::BackBufferResizing()
     m_bindingCache->Clear();
     m_renderTargets = nullptr;
     m_linesPipeline = nullptr; // the pipeline is based on the framebuffer so needs a reset
-    for (int i=0; i < std::size(m_nrd); i++ )
-        m_nrd[i] = nullptr;
+
 
 // NOTE: we're not yet sure if this is necessary to avoid crash with going in/out of fullscreen and FG
 #if DONUT_WITH_STREAMLINE
@@ -1520,7 +1518,7 @@ void Sample::UpdatePathTracerConstants( PathTracerConstants & constants, const P
     constants.DLSSRRBrightnessClampK = (m_ui.DLSSRRBrightnessClampK>0)?(m_ui.DLSSRRBrightnessClampK * constants.preExposedGrayLuminance):(0.0f);
 
     // no stable planes by default
-    constants.denoisingEnabled = m_ui.ActualUseStandaloneDenoiser() || m_ui.RealtimeAA == 3;
+    constants.denoisingEnabled = 0;
 
     constants._activeStablePlaneCount           = m_ui.StablePlanesActiveCount;
     constants.maxStablePlaneVertexDepth         = std::min( std::min( (uint)m_ui.StablePlanesMaxVertexDepth, cStablePlaneMaxVertexIndex ), (uint)m_ui.BounceCount );
@@ -1898,8 +1896,7 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
     {
         GetDevice()->waitForIdle();
         GetDevice()->runGarbageCollection();
-        for (int i = 0; i < std::size(m_nrd); i++)
-            m_nrd[i] = nullptr;
+
         m_renderTargets = nullptr;
         m_bindingCache->Clear( );
         m_renderTargets = std::make_unique<RenderTargets>( );
@@ -1936,18 +1933,6 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
     }
 
     bool exposureResetRequired = false;
-
-    if (m_ui.NRDModeChanged) // if changing between ReLAX and ReBLUR
-    {
-        needNewPasses = true;
-        for (int i = 0; i < std::size(m_nrd); i++)
-            m_nrd[i] = nullptr;
-    }
-    if (!m_ui.ActualUseStandaloneDenoiser()) // clean up the memory if not used
-    {
-        for (int i = 0; i < std::size(m_nrd); i++)
-            m_nrd[i] = nullptr;
-    }
 
     // Acceleration structures need some material info, whilst other passes need acceleration structures, so first set up materials if needed
     if (needNewPasses)
@@ -2139,8 +2124,7 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
         constants.debug.cameraPosW = constants.ptConsts.camera.PosW;
         constants.debug._padding0 = 0;
 
-        constants.denoisingHitParamConsts = { m_ui.ReblurSettings.hitDistanceParameters.A, m_ui.ReblurSettings.hitDistanceParameters.B,
-                                              m_ui.ReblurSettings.hitDistanceParameters.C, m_ui.ReblurSettings.hitDistanceParameters.D };
+        constants.denoisingHitParamConsts = {};
 
         // This updates all lighting: distant (environment maps and directional analytic lights) and local (analytic lights and emissive triangle lights)
         // Must go before m_constantBuffer as when saving screenshots it closes and re-opens command list, flushing the volatile constant buffer!
@@ -2662,7 +2646,7 @@ void Sample::PostProcessAA(nvrhi::IFramebuffer* framebuffer, bool reset)
             GetDeviceManager()->GetStreamline().EvaluateDLSSRR(m_commandList);
             m_commandList->clearState();
         }
-        else if ( !m_ui.ActualUseStandaloneDenoiser() )
+        else
         {
             // If all denoisers disabled, this is a pass-through that just merges and outputs noisy data
             SampleMiniConstants miniConstants = { uint4(0, 0, 0, 0) };

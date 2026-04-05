@@ -85,7 +85,6 @@ void LocalConfig::PostAppInit(SampleUIData& sampleUI)
         sampleUI.UseReSTIRGI = false;
         sampleUI.ToneMappingParams.autoExposure = false;
         sampleUI.RealtimeAA = 0;
-        sampleUI.StandaloneDenoiser = false;
         //sampleUI.ToneMappingParams.exposureCompensation = 5.2f;
         sampleUI.EnableAnimations = false;
         sampleUI.ReferenceFireflyFilterEnabled = false;
@@ -116,7 +115,6 @@ void LocalConfig::PostAppInit(SampleUIData& sampleUI)
         sampleUI.UseReSTIRGI = false;
         sampleUI.ToneMappingParams.autoExposure = false;
         sampleUI.RealtimeAA = 0;
-        sampleUI.StandaloneDenoiser = false;
         sampleUI.ReferenceFireflyFilterEnabled = false; //true;
         sampleUI.ReferenceFireflyFilterThreshold = 1.0f;
         sampleUI.RealtimeFireflyFilterEnabled = false; //true;

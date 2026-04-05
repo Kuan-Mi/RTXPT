@@ -156,8 +156,6 @@ SampleUI::SampleUI(DeviceManager* deviceManager, SampleBaseApp & baseApp, Sample
     m_ImNodesContext = ImNodes::Ez::CreateContext();
 #endif
 
-    m_ui.RelaxSettings = NrdConfig::getDefaultRELAXSettings();
-    m_ui.ReblurSettings = NrdConfig::getDefaultREBLURSettings();
 
     m_ui.TemporalAntiAliasingParams.useHistoryClampRelax = true;
 
@@ -173,7 +171,6 @@ SampleUI::SampleUI(DeviceManager* deviceManager, SampleBaseApp & baseApp, Sample
     m_ui.UseReSTIRGI                = cmdLine.UseReSTIRGI != 0;
     m_ui.RealtimeSamplesPerPixel    = cmdLine.RealtimeSamplesPerPixel;
     m_ui.AccumulationTarget         = cmdLine.ReferenceSamplesPerPixel;
-    m_ui.StandaloneDenoiser         = cmdLine.StandaloneDenoiser != 0;
     m_ui.RealtimeAA                 = cmdLine.RealtimeAA;
 
     ApplyPreset(m_ui, s_performancePresets[2]);
@@ -931,13 +928,6 @@ void SampleUI::buildUI(void)
                         m_ui.DLSSMode = DLSSModeUI(m_ui.DLSSMode);
                     }
 #endif
-
-                    {
-                        UI_SCOPED_DISABLE(!m_ui.RealtimeMode || m_ui.RealtimeAA==3);
-                        bool notTrue = false;
-                        ImGui::Checkbox("Use standalone denoiser (NRD)", (m_ui.RealtimeAA==3)?(&notTrue):(&m_ui.StandaloneDenoiser));
-                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Enables NVIDIA Real-Time Denoisers (NRD) that execute before TAA/DLSS/DLAA pass\nNote: no built-in denoiser available in 'Reference' mode, however \n'Photo mode screenshot' button launches external denoiser!");
-                    }
                 }
                 else // !m_ui.RealtimeMode
                 {
@@ -1237,134 +1227,6 @@ void SampleUI::buildUI(void)
             else
             {
                 ImGui::Text("Not available in reference mode");
-            }
-        }
-
-        if (m_ui.ActualUseStandaloneDenoiser() && ImGui::CollapsingHeader("Standalone Denoiser (NRD)"))
-        {
-            RAII_SCOPE(ImGui::Indent(indent); , ImGui::Unindent(indent); );
-
-            ImGui::InputFloat("Disocclusion Threshold", &m_ui.NRDDisocclusionThreshold);
-            ImGui::Checkbox("Use Alternate Disocclusion Threshold Mix", &m_ui.NRDUseAlternateDisocclusionThresholdMix);
-            ImGui::InputFloat("Disocclusion Threshold Alt", &m_ui.NRDDisocclusionThresholdAlternate);
-            ImGui::InputFloat("Radiance clamping", &m_ui.DenoiserRadianceClampK);
-
-            ImGui::Separator();
-
-            m_ui.NRDModeChanged = ImGui::Combo("Denoiser Mode", (int*)&m_ui.NRDMethod, "REBLUR\0RELAX\0\0");
-            m_ui.NRDMethod = dm::clamp(m_ui.NRDMethod, (NrdConfig::DenoiserMethod)0, (NrdConfig::DenoiserMethod)1);
-
-            if (ImGui::CollapsingHeader("Advanced Settings"))
-            {
-                if (m_ui.NRDMethod == NrdConfig::DenoiserMethod::REBLUR)
-                {
-                    // TODO: make sure these are updated to constants
-                    ImGui::SliderFloat("Hit Distance A", &m_ui.ReblurSettings.hitDistanceParameters.A, 0.0f, 10.0f);
-                    ImGui::SliderFloat("Hit Distance B", &m_ui.ReblurSettings.hitDistanceParameters.B, 0.0f, 10.0f);
-                    ImGui::SliderFloat("Hit Distance C", &m_ui.ReblurSettings.hitDistanceParameters.C, 0.0f, 50.0f);
-                    ImGui::SliderFloat("Hit Distance D", &m_ui.ReblurSettings.hitDistanceParameters.D, -50.0f, 0.0f);
-
-                    ImGui::SliderFloat("Antilag Luminance Sigma Scale", &m_ui.ReblurSettings.antilagSettings.luminanceSigmaScale, 1.0f, 3.0f);
-                    // ImGui::SliderFloat("Antilag Hit Distance Sigma Scale", &m_ui.ReblurSettings.antilagSettings.hitDistanceSigmaScale, 1.0f, 3.0f);
-                    ImGui::SliderFloat("Antilag Luminance Sensitivity", &m_ui.ReblurSettings.antilagSettings.luminanceSensitivity, 0.001f, 1.0f);
-                    // ImGui::SliderFloat("Antilag Hit Distance Sensitivity", &m_ui.ReblurSettings.antilagSettings.hitDistanceSensitivity, 0.001f, 1.0f);
-
-                    ImGui::SliderInt("Max Accumulated Frames", (int*)&m_ui.ReblurSettings.maxAccumulatedFrameNum, 0, nrd::REBLUR_MAX_HISTORY_FRAME_NUM);
-                    ImGui::SliderInt("Fast Max Accumulated Frames", (int*)&m_ui.ReblurSettings.maxFastAccumulatedFrameNum, 0, nrd::REBLUR_MAX_HISTORY_FRAME_NUM);
-                    ImGui::SliderInt("History Fix Frames", (int*)&m_ui.ReblurSettings.historyFixFrameNum, 0, nrd::REBLUR_MAX_HISTORY_FRAME_NUM);
-
-                    ImGui::SliderFloat("Diffuse Prepass Blur Radius (pixels)", &m_ui.ReblurSettings.diffusePrepassBlurRadius, 0.0f, 100.0f);
-                    ImGui::SliderFloat("Specular Prepass Blur Radius (pixels)", &m_ui.ReblurSettings.specularPrepassBlurRadius, 0.0f, 100.0f);
-                    ImGui::SliderFloat("Min Blur Radius (pixels)", &m_ui.ReblurSettings.minBlurRadius, 0.0f, 100.0f);
-                    ImGui::SliderFloat("Max Blur Radius (pixels)", &m_ui.ReblurSettings.maxBlurRadius, 0.0f, 100.0f);
-
-                    ImGui::SliderFloat("Lobe Angle Fraction", &m_ui.ReblurSettings.lobeAngleFraction, 0.0f, 1.0f);
-                    ImGui::SliderFloat("Roughness Fraction", &m_ui.ReblurSettings.roughnessFraction, 0.0f, 1.0f);
-
-                    ImGui::SliderFloat("Accumulation Roughness Threshold", &m_ui.ReblurSettings.responsiveAccumulationRoughnessThreshold, 0.0f, 1.0f);
-
-                    //ImGui::SliderFloat("Stabilization Strength", &m_ui.ReblurSettings.stabilizationStrength, 0.0f, 1.0f);
-
-                    ImGui::SliderFloat("Plane Distance Sensitivity", &m_ui.ReblurSettings.planeDistanceSensitivity, 0.0f, 1.0f);
-
-                    // ImGui::Combo("Checkerboard Mode", (int*)&m_ui.ReblurSettings.checkerboardMode, "Off\0Black\0White\0\0");
-
-                    // these are uint8_t and ImGUI takes a ptr to int32_t :(
-                    int hitDistanceReconstructionMode = (int)m_ui.ReblurSettings.hitDistanceReconstructionMode;
-                    ImGui::Combo("Hit Distance Reconstruction Mode", &hitDistanceReconstructionMode, "Off\0AREA_3X3\0AREA_5X5\0\0");
-                    m_ui.ReblurSettings.hitDistanceReconstructionMode = (nrd::HitDistanceReconstructionMode)hitDistanceReconstructionMode;
-
-                    ImGui::Checkbox("Enable Firefly Filter", &m_ui.ReblurSettings.enableAntiFirefly);
-
-                    // ImGui::Checkbox("Enable Diffuse Material Test", &m_ui.ReblurSettings.enableMaterialTestForDiffuse);
-                    // ImGui::Checkbox("Enable Specular Material Test", &m_ui.ReblurSettings.enableMaterialTestForSpecular);
-                }
-                else // m_ui.NRDMethod == NrdConfig::DenoiserMethod::RELAX
-                {
-                    ImGui::SliderFloat("Diffuse Prepass Blur Radius", &m_ui.RelaxSettings.diffusePrepassBlurRadius, 0.0f, 100.0f);
-                    ImGui::SliderFloat("Specular Prepass Blur Radius", &m_ui.RelaxSettings.specularPrepassBlurRadius, 0.0f, 100.0f);
-
-                    ImGui::SliderInt("Diffuse Max Accumulated Frames", (int*)&m_ui.RelaxSettings.diffuseMaxAccumulatedFrameNum, 0, nrd::RELAX_MAX_HISTORY_FRAME_NUM);
-                    ImGui::SliderInt("Specular Max Accumulated Frames", (int*)&m_ui.RelaxSettings.specularMaxAccumulatedFrameNum, 0, nrd::RELAX_MAX_HISTORY_FRAME_NUM);
-
-                    ImGui::SliderInt("Diffuse Fast Max Accumulated Frames", (int*)&m_ui.RelaxSettings.diffuseMaxFastAccumulatedFrameNum, 0, 10);   // nrd::RELAX_MAX_HISTORY_FRAME_NUM
-                    ImGui::SliderInt("Specular Fast Max Accumulated Frames", (int*)&m_ui.RelaxSettings.specularMaxFastAccumulatedFrameNum, 0, 10); // nrd::RELAX_MAX_HISTORY_FRAME_NUM
-
-                    ImGui::SliderInt("History Fix Frame Num", (int*)&m_ui.RelaxSettings.historyFixFrameNum, 0, nrd::RELAX_MAX_HISTORY_FRAME_NUM);
-
-                    ImGui::SliderFloat("Diffuse Edge Stopping Sensitivity", &m_ui.RelaxSettings.diffusePhiLuminance, 0.0f, 10.0f);
-                    ImGui::SliderFloat("Specular Edge Stopping Sensitivity", &m_ui.RelaxSettings.specularPhiLuminance, 0.0f, 10.0f);
-
-                    ImGui::SliderFloat("Lobe Angle Fraction", &m_ui.RelaxSettings.lobeAngleFraction, 0.0f, 1.0f);
-                    ImGui::SliderFloat("Roughness Fraction", &m_ui.RelaxSettings.roughnessFraction, 0.0f, 1.0f);
-
-                    ImGui::SliderFloat("Specular Variance Boost", &m_ui.RelaxSettings.specularVarianceBoost, 0.0f, 1.0f);
-
-                    ImGui::SliderFloat("Specular Lobe Angle Slack", &m_ui.RelaxSettings.specularLobeAngleSlack, 0.0f, 1.0f);
-
-                    ImGui::SliderFloat("Normal Edge Stopping Power", &m_ui.RelaxSettings.historyFixEdgeStoppingNormalPower, 0.0f, 30.0f);
-
-                    ImGui::SliderFloat("Clamping Color Box Sigma Scale", &m_ui.RelaxSettings.historyClampingColorBoxSigmaScale, 0.0f, 3.0f);
-
-                    ImGui::SliderInt("Spatial Variance Estimation History Threshold", (int*)&m_ui.RelaxSettings.spatialVarianceEstimationHistoryThreshold, 0, nrd::RELAX_MAX_HISTORY_FRAME_NUM);
-
-                    ImGui::SliderInt("Number of Atrous iterations", (int*)&m_ui.RelaxSettings.atrousIterationNum, 2, 8);
-
-                    ImGui::SliderFloat("Diffuse Min Luminance Weight", &m_ui.RelaxSettings.diffuseMinLuminanceWeight, 0.0f, 1.0f);
-                    ImGui::SliderFloat("Specular Min Luminance Weight", &m_ui.RelaxSettings.specularMinLuminanceWeight, 0.0f, 1.0f);
-
-                    ImGui::SliderFloat("Edge Stopping Threshold", &m_ui.RelaxSettings.depthThreshold, 0.0f, 0.1f);
-
-                    ImGui::SliderFloat("Confidence: Relaxation Multiplier", &m_ui.RelaxSettings.confidenceDrivenRelaxationMultiplier, 0.0f, 1.0f);
-                    ImGui::SliderFloat("Confidence: Luminance Edge Stopping Relaxation", &m_ui.RelaxSettings.confidenceDrivenLuminanceEdgeStoppingRelaxation, 0.0f, 1.0f);
-                    ImGui::SliderFloat("Confidence: Normal Edge Stopping Relaxation", &m_ui.RelaxSettings.confidenceDrivenNormalEdgeStoppingRelaxation, 0.0f, 1.0f);
-
-                    ImGui::SliderFloat("Luminance Edge Stopping Relaxation", &m_ui.RelaxSettings.luminanceEdgeStoppingRelaxation, 0.0f, 1.0f);
-                    ImGui::SliderFloat("Normal Edge Stopping Relaxation", &m_ui.RelaxSettings.normalEdgeStoppingRelaxation, 0.0f, 1.0f);
-
-                    ImGui::SliderFloat("Roughness Edge Stopping Relaxation", &m_ui.RelaxSettings.roughnessEdgeStoppingRelaxation, 0.0f, 5.0f);
-
-                    ImGui::SliderFloat("Antilag Acceleration Amount", &m_ui.RelaxSettings.antilagSettings.accelerationAmount, 0.0f, 1.0f);
-                    ImGui::SliderFloat("Antilag Spatial Sigma Scale", &m_ui.RelaxSettings.antilagSettings.spatialSigmaScale, 0.0f, 5.0f);
-                    ImGui::SliderFloat("Antilag Temporal Sigma Scale", &m_ui.RelaxSettings.antilagSettings.temporalSigmaScale, 0.0f, 5.0f);
-                    ImGui::SliderFloat("Antilag Reset Amount", &m_ui.RelaxSettings.antilagSettings.resetAmount, 0.0f, 1.0f);
-
-                    // ImGui::Combo("Checkerboard Mode", (int*)&m_ui.RelaxSettings.checkerboardMode, "Off\0Black\0White\0\0");
-
-                    int hitDistanceReconstructionMode = (int)m_ui.RelaxSettings.hitDistanceReconstructionMode;  // these are uint8_t and ImGUI takes a ptr to int32_t :(
-                    ImGui::Combo("Hit Distance Reconstruction Mode", &hitDistanceReconstructionMode, "Off\0AREA_3X3\0AREA_5X5\0\0");
-                    m_ui.RelaxSettings.hitDistanceReconstructionMode = (nrd::HitDistanceReconstructionMode)hitDistanceReconstructionMode;
-
-                    ImGui::Checkbox("Enable Firefly Filter", &m_ui.RelaxSettings.enableAntiFirefly);
-
-                    ImGui::Checkbox("Roughness Edge Stopping", &m_ui.RelaxSettings.enableRoughnessEdgeStopping);
-
-                    // ImGui::Checkbox("Enable Diffuse Material Test", &m_ui.RelaxSettings.enableMaterialTestForDiffuse);
-                    // ImGui::Checkbox("Enable Specular Material Test", &m_ui.RelaxSettings.enableMaterialTestForSpecular);
-                }
-
-                // Not really needed for now since we have reference codepath, but it could be used to debug some of the NRD codepaths so leaving in as a reminder
-                // ImGui::Checkbox("Reference Accumulation", &m_ui.NRDReferenceSettings.maxAccumulatedFrameNum);
             }
         }
 

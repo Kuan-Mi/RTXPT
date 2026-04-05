@@ -121,7 +121,6 @@ struct SampleUIData
 {
 
     uint                                ActualSamplesPerPixel() const { return RealtimeSamplesPerPixel; }
-    bool                                ActualUseStandaloneDenoiser() const { return (RealtimeMode && RealtimeAA < 3) ? StandaloneDenoiser : false; }
     float                               ActualNEEAT_LocalToGlobalSampleRatio() const { return (NEEType == 2) ? (NEEAT_LocalToGlobalSampleRatio) : (0); }    // make sure we use no local samples when NEE-AT disabled!
     bool                                ActualFireflyFilterEnabled() const { return (RealtimeMode)?RealtimeFireflyFilterEnabled:ReferenceFireflyFilterEnabled; }
 
@@ -162,7 +161,7 @@ struct SampleUIData
     bool                                UseReSTIRGI /*Defaults in CommandLine >*/;
     bool                                RealtimeMode = true;
     int                                 RealtimeSamplesPerPixel /*Defaults in CommandLine >*/;        // equivalent to m_ui.AccumulationTarget in reference mode (except looping x times within frame)
-    bool                                StandaloneDenoiser /*Defaults in CommandLine >*/;
+    // bool                                StandaloneDenoiser /*Defaults in CommandLine >*/;
     bool                                ResetAccumulation = false;
     bool                                ResetRealtimeCaches = false;
     int                                 BounceCount = 20;
@@ -286,15 +285,7 @@ struct SampleUIData
 
     std::shared_ptr<std::vector<TogglableNode>> TogglableNodes = nullptr;
 
-    // Denoiser
-    bool                                NRDModeChanged = false;
-    NrdConfig::DenoiserMethod           NRDMethod = NrdConfig::DenoiserMethod::REBLUR;
-    float                               NRDDisocclusionThreshold = 0.03f;
-    bool                                NRDUseAlternateDisocclusionThresholdMix = true;
-    float                               NRDDisocclusionThresholdAlternate = 0.2f;
-    nrd::RelaxSettings                  RelaxSettings;
-    nrd::ReblurSettings                 ReblurSettings;
-    //nrd::ReferenceSettings              NRDReferenceSettings;
+
 
     bool                                PostProcessTestPassHDR = false;
     bool                                PostProcessEdgeDetection = false;

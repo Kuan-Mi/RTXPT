@@ -22,9 +22,6 @@
 #include <donut/app/Camera.h>
 #include <donut/engine/CommonRenderPasses.h>
 
-#include "RTXDI/RtxdiPass.h"
-#include "NRD/NrdIntegration.h"
-//#include "PathTracer/StablePlanes.hlsli"
 #if DONUT_WITH_STREAMLINE
 #include <donut/app/StreamlineInterface.h>
 #endif
@@ -322,7 +319,6 @@ private:
     uint                                        m_sampleIndex = 0;            // per-frame sampling index; same as m_accumulationSampleIndex in accumulation mode, otherwise in realtime based on frameIndex%something 
     SampleConstants                             m_currentConstants = {};
 
-    std::unique_ptr<NrdIntegration>             m_nrd[cStablePlaneCount];       // reminder: when switching between ReLAX/ReBLUR, change settings, reset these to 0 and they'll get re-created in CreateRenderPasses!
     std::unique_ptr<AccumulationPass>           m_accumulationPass;
     std::shared_ptr<ShaderDebug>                m_shaderDebug;
 
