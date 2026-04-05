@@ -1839,6 +1839,7 @@ void Sample::PostProcessPreToneMapping(nvrhi::ICommandList* commandList, const d
 
     if (m_ui.EnableBloom && m_ui.BloomIntensity > 0.f && m_ui.BloomRadius > 0.f)
     {
+        ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::Bloom);
         m_bloomPass->Render(m_commandList, m_renderTargets->ProcessedOutputFramebuffer, fullscreenView, m_renderTargets->ProcessedOutputColor, m_ui.BloomRadius, m_ui.BloomIntensity);
     }
 
@@ -2070,6 +2071,7 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
             m_shaderDebug->BeginFrame(m_commandList, viewProj);
         }
 
+        
         // NOTE: this refreshes geometry buffers and updates stuff needed by m_ommBaker and m_materialsBaker and others below!
         m_scene->Refresh(m_commandList, GetFrameIndex());
 
@@ -2206,19 +2208,26 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
 
     PostProcessPreToneMapping(m_commandList, fullscreenView);   // writing to m_renderTargets->ProcessedOutputColor
 
+    
+    m_profiler->BeginSection(m_commandList, ProfilerSection::ToneMapping);
     //Tone Mapping; it will read from m_renderTargets->ProcessedOutputColor and write into m_renderTargets->LdrColor; in case tonemapping is disabled, it's just a passthrough
     if (m_toneMappingPass->Render(m_commandList, fullscreenView, m_renderTargets->ProcessedOutputColor, m_ui.EnableToneMapping))
     {
         // first run tonemapper can close & re-open command list - when that happens, we have to re-upload volatile constants
         m_commandList->writeBuffer(m_constantBuffer, &constants, sizeof(constants));
     }
+    m_profiler->EndSection(m_commandList, ProfilerSection::ToneMapping);
 
     PostProcessPostToneMapping(m_commandList, fullscreenView);  // writing to m_renderTargets->LdrColor
 
     //m_postProcess->Render(m_commandList, m_renderTargets->LdrColor);
 
     if (m_ui.EnableShaderDebug)
+    {
+        m_profiler->BeginSection(m_commandList, ProfilerSection::ShaderDebug);
         m_shaderDebug->EndFrameAndOutput(m_commandList, m_renderTargets->LdrFramebuffer->GetFramebuffer(fullscreenView), m_renderTargets->Depth, fbinfo.getViewport());
+        m_profiler->EndSection(m_commandList, ProfilerSection::ShaderDebug);
+    }
 
     m_zoomTool->Render(m_commandList, m_renderTargets->LdrColor);
 
@@ -2618,11 +2627,9 @@ void Sample::Denoise(nvrhi::IFramebuffer* framebuffer)
         // Direct inputs to denoiser are reused between passes; there's redundant copies but it makes interfacing simpler
         nvrhi::TextureDesc tdesc = m_renderTargets->OutputColor->getDesc();
         
-        m_profiler->BeginSection(m_commandList, ProfilerSection::PrepareInputs);
         m_commandList->beginMarker("PrepareInputs");
         m_postProcess->Apply(m_commandList, preparePassType, m_constantBuffer, miniConstants, m_bindingSet, m_bindingLayout, tdesc.width, tdesc.height);
         m_commandList->endMarker();
-        m_profiler->BeginSection(m_commandList, ProfilerSection::PrepareInputs);
 
         const float timeDeltaBetweenFrames = m_cmdLine.noWindow ? 1.f/60.f : -1.f; // if we're rendering without a window we set a fix timeDeltaBetweenFrames to ensure that output is deterministic
         bool enableValidation = m_ui.DebugView == DebugViewType::StablePlane_DenoiserValidation;
@@ -2645,7 +2652,6 @@ void Sample::Denoise(nvrhi::IFramebuffer* framebuffer)
 
 void Sample::PostProcessAA(nvrhi::IFramebuffer* framebuffer, bool reset)
 {
-    ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::Denoising);
     if (m_ui.RealtimeMode)
     {
         if (m_ui.RealtimeAA == 0)
@@ -2734,6 +2740,7 @@ void Sample::PostProcessAA(nvrhi::IFramebuffer* framebuffer, bool reset)
         }
         if (m_ui.RealtimeAA == 3)
         {
+            ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::DLSS_RR);
             RAII_SCOPE(m_commandList->beginMarker("DLSS-RR");, m_commandList->endMarker(); );
 
             // Direct inputs to denoiser are reused between passes; there's redundant copies but it makes interfacing simpler

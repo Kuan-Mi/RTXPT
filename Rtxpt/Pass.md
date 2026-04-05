@@ -1,4 +1,44 @@
 # RTXPT 渲染帧 Pass 分析
+总体流程是
+
+- LightingUpdateBegin
+    - ControlDataSetup
+    - ResetLightProxyCounters
+    - ResetPastToCurrentHistory
+    - EnvLightsBackupPast
+    - EnvmapAndAnalyticLightBuffers
+    - EnvLightsSubdivideBase
+    - EnvLightsSubdivideBoost
+    - BakeEmissiveTriangles
+    - EnvLightFillLookupMap
+    - EnvLightsMapPastToCurrent
+    - ProcessFeedbackHistoryPreFilter
+    - ProcessFeedbackHistoryP0
+    - ComputeWeights
+    - ComputeProxyCounts
+    - ComputeProxyBaselineOffsets
+    - CreateProxyJobs
+    - ExecuteProxyJobs
+- PathTracePrePass
+- VBufferExport
+- LightingUpdateEnd
+    - ProcessFeedbackHistoryP1a
+    - ProcessFeedbackHistoryP1b
+    - ProcessFeedbackHistoryP2
+    - ProcessFeedbackHistoryP3
+    - ClearFeedbackHistory
+- PathTrace
+- DenoisingGuidesBake
+    - DenoiseSpecHitT
+    - ComputeAvgLayerRadiance
+- DLSS-RR
+    - DLSS-RR_PrepareInputs
+    - NVSDK
+- Bloom
+- Luminance
+- ToneMapping
+- ShaderDebug
+- Blit
 
 ## 1. updateLighting → LightingUpdateBegin
 
@@ -78,6 +118,8 @@ CPU→GPU 数据上传。把 CPU 上计算好的 `LightingControlData` 控制结
 > **注意**：此 Pass 输出的 `Depth` 和 `MotionVectors` 是 `LightingUpdateEnd` 的必要输入，这是它被插在中间的原因。
 
 ---
+
+少了一个 VBufferExport
 
 ## 3. LightingUpdateEnd
 

@@ -19,7 +19,7 @@ struct ProfilerSection
         TlasUpdate,
         PreUpdateLighting,
         UpdateLighting,
-        PathTraceAll,
+
         PathTracePrePass,
         VBufferExport,
         LightingUpdateEnd,
@@ -27,14 +27,13 @@ struct ProfilerSection
         RTXDI,
         DenoisingGuidesBake,
         Denoising,
-        PostProcessAA,
-        ToneMapping,
-        TestRaygenPPHDR,
-        EdgeDetection,
         DLSS,
         DLSS_RR,
+        Bloom,
+        Luminance,
+        ToneMapping,
+        ShaderDebug,
         Blit,
-        PrepareInputs,
         Frame,
 
         Count

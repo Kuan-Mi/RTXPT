@@ -20,7 +20,6 @@ static const char* g_SectionNames[ProfilerSection::Count] = {
     "TlasUpdate",
     "PreUpdateLighting",
     "UpdateLighting",
-    "PathTraceAll",
     "PathTracePrePass",
     "VBufferExport",
     "LightingUpdateEnd",
@@ -28,16 +27,14 @@ static const char* g_SectionNames[ProfilerSection::Count] = {
     "RTXDI",
     "DenoisingGuidesBake",
     "Denoising",
-    "PostProcessAA",
-    "ToneMapping",
-    "TestRaygenPPHDR",
-    "EdgeDetection",
     "DLSS",
     "DLSS_RR",
+    "Bloom",
+    "Luminance",
+    "ToneMapping",
+    "ShaderDebug",
     "Blit",
-    "PrepareInputs",
     "Frame",
-
 };
 
 Profiler::Profiler(donut::app::DeviceManager& deviceManager)
