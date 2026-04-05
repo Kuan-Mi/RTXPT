@@ -119,7 +119,6 @@ public:
     void                                    PreUpdatePathTracing(bool resetAccum, nvrhi::CommandListHandle commandList);
     void                                    PostUpdatePathTracing();
     void                                    UpdatePathTracerConstants( PathTracerConstants & constants, const PathTracerCameraData & cameraData );
-    void                                    RtxdiSetupFrame(nvrhi::IFramebuffer* framebuffer, PathTracerCameraData cameraData, uint2 renderDims);
 
     // Extendable sample interface
     virtual bool                            NeedsIntroPathTracerBuffers() { return false; } // TODO: do this in a nicer way, no time now
@@ -129,7 +128,6 @@ public:
     virtual void                            DestroyRTPipelines() = 0;
     virtual std::string                     GetMaterialSpecializationShader() const = 0;
 
-    void                                    Denoise(nvrhi::IFramebuffer* framebuffer);
     void                                    PathTrace(nvrhi::IFramebuffer* framebuffer, const SampleConstants & constants);
     void                                    PreRender();
     void                                    StreamlinePreRender();
@@ -192,7 +190,6 @@ protected:
     
     // all UI-tweakable settings are here
     SampleUIData& m_ui;
-    std::unique_ptr<RtxdiPass>                  m_rtxdiPass;
     std::unique_ptr<RenderTargets>              m_renderTargets;
     nvrhi::BindingLayoutHandle                  m_bindingLayout;
     nvrhi::BindingLayoutHandle                  m_bindlessLayout;

@@ -24,12 +24,7 @@ public:
 
     virtual void SampleRenderCode(nvrhi::IFramebuffer* framebuffer, nvrhi::CommandListHandle commandList, const SampleConstants& constants) override
     {
-        if (m_ui.ActualUseRTXDIPasses())
-            m_rtxdiPass->BeginFrame(commandList, *m_renderTargets, m_bindingLayout, m_bindingSet);
-
         PathTrace(framebuffer, constants);
-
-        Denoise(framebuffer);
     }
 
     virtual void CreateRTPipelines() override

@@ -435,8 +435,6 @@ void Sample::SceneUnloading( )
     m_materialsBaker = nullptr;
     m_gpuSort = nullptr;
     m_uncompressedTextures.clear();
-    if (m_rtxdiPass != nullptr) 
-	    m_rtxdiPass->Reset();
     if (m_ommBaker != nullptr)
         m_ommBaker->SceneUnloading();
 
@@ -1007,8 +1005,8 @@ void Sample::FillPTPipelineGlobalMacros(std::vector<donut::engine::ShaderMacro> 
 
     macros.push_back({ "PT_NEE_ENABLED", (m_ui.UseNEE)?("1"):("0") });
 
-    macros.push_back({ "PT_USE_RESTIR_DI", (m_ui.ActualUseReSTIRDI()) ? ("1") : ("0") });   // these will match constants.useReSTIRDI but constants are used in other passes too
-    macros.push_back({ "PT_USE_RESTIR_GI", (m_ui.ActualUseReSTIRGI()) ? ("1") : ("0") });   // these will match constants.useReSTIRGI but constants are used in other passes too
+    macros.push_back({ "PT_USE_RESTIR_DI", ("0") });   // these will match constants.useReSTIRDI but constants are used in other passes too
+    macros.push_back({ "PT_USE_RESTIR_GI", ("0") });   // these will match constants.useReSTIRGI but constants are used in other passes too
     
 
     // minor perf gains but recompile time every time value changed is too annoying 
@@ -1255,8 +1253,6 @@ void Sample::BackBufferResizing()
     m_linesPipeline = nullptr; // the pipeline is based on the framebuffer so needs a reset
     for (int i=0; i < std::size(m_nrd); i++ )
         m_nrd[i] = nullptr;
-    if (m_rtxdiPass)
-        m_rtxdiPass->Reset();
 
 // NOTE: we're not yet sure if this is necessary to avoid crash with going in/out of fullscreen and FG
 #if DONUT_WITH_STREAMLINE
@@ -1287,11 +1283,6 @@ void Sample::CreateRenderPasses( bool& exposureResetRequired, nvrhi::CommandList
     const uint2 screenResolution = {m_renderTargets->OutputColor->getDesc().width, m_renderTargets->OutputColor->getDesc().height};
 
     m_shaderDebug = std::make_shared<ShaderDebug>(GetDevice(), initializeCommandList, m_shaderFactory, m_CommonPasses);
-
-    if (m_ui.ActualUseRTXDIPasses())
-        m_rtxdiPass = std::make_unique<RtxdiPass>(GetDevice(), m_shaderFactory, m_CommonPasses, m_bindlessLayout);
-    else
-        m_rtxdiPass = nullptr;
 
     m_accumulationPass = std::make_unique<AccumulationPass>(GetDevice(), m_shaderFactory);
     m_accumulationPass->CreatePipeline();
@@ -1459,9 +1450,6 @@ void Sample::PostUpdatePathTracing( )
 {
     m_accumulationSampleIndex = std::min( m_accumulationSampleIndex+1, m_ui.AccumulationTarget );
 
-    if (m_ui.ActualUseRTXDIPasses())
-        m_rtxdiPass->EndFrame();
-
     m_ui.ResetAccumulation = false;
     m_ui.ResetRealtimeCaches = false;
     m_frameIndex++;
@@ -1526,8 +1514,8 @@ void Sample::UpdatePathTracerConstants( PathTracerConstants & constants, const P
         constants.fireflyFilterThreshold = (m_ui.RealtimeFireflyFilterEnabled)?(m_ui.RealtimeFireflyFilterThreshold*sqrtf(constants.preExposedGrayLuminance)*1e3f):(disabledFF); // it does make sense to make the realtime variant dependent on avg luminance - just didn't have time to try it out yet
     else
         constants.fireflyFilterThreshold = (m_ui.ReferenceFireflyFilterEnabled)?(m_ui.ReferenceFireflyFilterThreshold*sqrtf(constants.preExposedGrayLuminance)*1e3f):(disabledFF); // making it exposure-adaptive breaks determinism with accumulation (because there's a feedback loop), so that's disabled
-    constants.useReSTIRDI = m_ui.ActualUseReSTIRDI();
-    constants.useReSTIRGI = m_ui.ActualUseReSTIRGI();
+    constants.useReSTIRDI = 0;
+    constants.useReSTIRGI = 0;
     constants.denoiserRadianceClampK = m_ui.DenoiserRadianceClampK;
     constants.DLSSRRBrightnessClampK = (m_ui.DLSSRRBrightnessClampK>0)?(m_ui.DLSSRRBrightnessClampK * constants.preExposedGrayLuminance):(0.0f);
 
@@ -1560,28 +1548,6 @@ void Sample::UpdatePathTracerConstants( PathTracerConstants & constants, const P
     constants.STFGaussianSigma                  = m_ui.STFGaussianSigma;
 #endif
 }
-
-
-void Sample::RtxdiSetupFrame(nvrhi::IFramebuffer* framebuffer, PathTracerCameraData cameraData, uint2 renderDims)
-{
-    const bool envMapPresent = m_ui.EnvironmentMapParams.Enabled;
-
-    RtxdiBridgeParameters bridgeParameters;
-	bridgeParameters.frameIndex = m_frameIndex & 0xFFFFFFFF;
-	bridgeParameters.frameDims = renderDims;
-	bridgeParameters.cameraPosition = m_camera.GetPosition();
-	bridgeParameters.userSettings = m_ui.RTXDI;
-    bridgeParameters.usingLightSampling = m_ui.ActualUseReSTIRDI();
-    bridgeParameters.usingReGIR = m_ui.ActualUseReSTIRDI();
-
-    bridgeParameters.userSettings.restirDI.initialSamplingParams.environmentMapImportanceSampling = envMapPresent;
-
-    if( m_ui.ResetRealtimeCaches )
-        m_rtxdiPass->Reset();
-
-	m_rtxdiPass->PrepareResources(m_commandList, *m_renderTargets, envMapPresent ? m_envMapBaker : nullptr, m_envMapSceneParams,
-        m_scene, m_materialsBaker, m_ommBaker, m_subInstanceBuffer, bridgeParameters, m_bindingLayout, m_shaderDebug );
- }
 
 bool Sample::ShouldRenderUnfocused()
 {
@@ -2017,11 +1983,6 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
     // Changes to material properties and settings can require a BLAS/TLAS or subInstanceBuffer rebuild (alpha tested/exclusion flags etc); otherwise this is a no-op.
     RecreateAccelStructs(m_commandList);
 
-    if (m_ui.ActualUseRTXDIPasses() && m_rtxdiPass == nullptr )
-        needNewPasses = true; // this will initialize rtxdi passes
-    if (!m_ui.ActualUseRTXDIPasses())
-        m_rtxdiPass = nullptr;
-
     // this will also create or update materials which can trigger the need to update acceleration structures
     if (needNewPasses)
     {
@@ -2095,14 +2056,6 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
 
         // Update input lighting, environment map, etc.
         PreUpdateLighting(m_commandList, needNewBindings);
-
-        // Early init for RTXDI
-        if (m_rtxdiPass != nullptr) 
-        {
-            if (needNewPasses || needNewBindings || m_bindingSet == nullptr)
-                m_rtxdiPass->Reset();
-            RtxdiSetupFrame(framebuffer, cameraData, m_renderSize);
-        }
     }
 
 	if( needNewPasses || needNewBindings || m_bindingSet == nullptr )
@@ -2549,25 +2502,6 @@ void Sample::PathTrace(nvrhi::IFramebuffer* framebuffer, const SampleConstants &
         m_commandList->setBufferState(m_renderTargets->StablePlanesBuffer, nvrhi::ResourceStates::UnorderedAccess);
     }
 
-    // this is a performance optimization where final 2 passes from ReSTIR DI and ReSTIR GI are combined to avoid loading GBuffer twice
-    static bool enableFusedDIGIFinal = true;
-    bool useFusedDIGIFinal = m_ui.ActualUseReSTIRDI() && m_ui.ActualUseReSTIRGI() && enableFusedDIGIFinal;
-
-    if (m_ui.ActualUseRTXDIPasses())
-    {
-        RAII_SCOPE( m_commandList->beginMarker("RTXDI");, m_commandList->endMarker(); );
-
-        // this does all ReSTIR DI magic including applying the final sample into correct radiance buffer (depending on denoiser state)
-        if (m_ui.ActualUseReSTIRDI())
-            m_rtxdiPass->Execute(m_commandList, m_bindingSet, useFusedDIGIFinal);
-
-        if (m_ui.ActualUseReSTIRGI())
-            m_rtxdiPass->ExecuteGI(m_commandList, m_bindingSet, useFusedDIGIFinal);
-
-        if (useFusedDIGIFinal)
-            m_rtxdiPass->ExecuteFusedDIGIFinal(m_commandList, m_bindingSet);
-    }
-
     {
         ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::DenoisingGuidesBake);
         RAII_SCOPE(m_commandList->beginMarker("Denoising Guides Bake"); , m_commandList->endMarker(); );
@@ -2586,67 +2520,6 @@ void Sample::PathTrace(nvrhi::IFramebuffer* framebuffer, const SampleConstants &
         m_postProcess->Apply(m_commandList, PostProcess::ComputePassType::StablePlanesDebugViz, m_constantBuffer, miniConstants, m_bindingSet, m_bindingLayout, tdesc.width, tdesc.height);
         m_commandList->endMarker();
 
-    }
-}
-
-void Sample::Denoise(nvrhi::IFramebuffer* framebuffer)
-{
-    if( !m_ui.ActualUseStandaloneDenoiser() )
-        return;
-
-    for (int i = 0; i < std::size(m_nrd); i++)
-    {
-        if (m_nrd[i] == nullptr)
-        {
-            nrd::Denoiser denoiserMethod = m_ui.NRDMethod == NrdConfig::DenoiserMethod::REBLUR ?
-                nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR : nrd::Denoiser::RELAX_DIFFUSE_SPECULAR;
-
-            m_nrd[i] = std::make_unique<NrdIntegration>(GetDevice(), denoiserMethod);
-            m_nrd[i]->Initialize(m_renderSize.x, m_renderSize.y, *m_shaderFactory);
-        }
-    }
-
-    //const auto& fbinfo = framebuffer->getFramebufferInfo();
-    const char* passNames[] = { "Denoising plane 0", "Denoising plane 1", "Denoising plane 2", "Denoising plane 3" }; assert( std::size(m_nrd) <= std::size(passNames) );
-
-    bool nrdUseRelax = m_ui.NRDMethod == NrdConfig::DenoiserMethod::RELAX;
-    PostProcess::ComputePassType preparePassType = nrdUseRelax ? PostProcess::ComputePassType::RELAXDenoiserPrepareInputs : PostProcess::ComputePassType::REBLURDenoiserPrepareInputs;
-    PostProcess::ComputePassType mergePassType = nrdUseRelax ? PostProcess::ComputePassType::RELAXDenoiserFinalMerge : PostProcess::ComputePassType::REBLURDenoiserFinalMerge;
-
-    bool resetHistory = m_ui.ResetRealtimeCaches;
-
-    int maxPassCount = std::min(m_ui.StablePlanesActiveCount, (int)std::size(m_nrd));
-    bool initWithStableRadiance = true;
-    for (int pass = maxPassCount-1; pass >= 0; pass--)
-    {
-        m_commandList->beginMarker(passNames[pass]);
-
-        SampleMiniConstants miniConstants = { uint4((uint)pass, initWithStableRadiance?1:0, 0, 0) };
-        initWithStableRadiance = false;
-
-        // Direct inputs to denoiser are reused between passes; there's redundant copies but it makes interfacing simpler
-        nvrhi::TextureDesc tdesc = m_renderTargets->OutputColor->getDesc();
-        
-        m_commandList->beginMarker("PrepareInputs");
-        m_postProcess->Apply(m_commandList, preparePassType, m_constantBuffer, miniConstants, m_bindingSet, m_bindingLayout, tdesc.width, tdesc.height);
-        m_commandList->endMarker();
-
-        const float timeDeltaBetweenFrames = m_cmdLine.noWindow ? 1.f/60.f : -1.f; // if we're rendering without a window we set a fix timeDeltaBetweenFrames to ensure that output is deterministic
-        bool enableValidation = m_ui.DebugView == DebugViewType::StablePlane_DenoiserValidation;
-        if (nrdUseRelax)
-        {
-            m_nrd[pass]->RunDenoiserPasses(m_commandList, *m_renderTargets, pass, *m_view, *m_viewPrevious, GetFrameIndex(), m_ui.NRDDisocclusionThreshold, m_ui.NRDDisocclusionThresholdAlternate, m_ui.NRDUseAlternateDisocclusionThresholdMix, timeDeltaBetweenFrames, enableValidation, resetHistory, &m_ui.RelaxSettings);
-        }
-        else
-        {
-            m_nrd[pass]->RunDenoiserPasses(m_commandList, *m_renderTargets, pass, *m_view, *m_viewPrevious, GetFrameIndex(), m_ui.NRDDisocclusionThreshold, m_ui.NRDDisocclusionThresholdAlternate, m_ui.NRDUseAlternateDisocclusionThresholdMix, timeDeltaBetweenFrames, enableValidation, resetHistory, &m_ui.ReblurSettings);
-        }
-
-        m_commandList->beginMarker("MergeOutputs");
-        m_postProcess->Apply(m_commandList, mergePassType, pass, m_constantBuffer, miniConstants, m_renderTargets->OutputColor, *m_renderTargets, nullptr);
-        m_commandList->endMarker();
-
-        m_commandList->endMarker();
     }
 }
 
