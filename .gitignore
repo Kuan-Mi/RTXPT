@@ -5,6 +5,7 @@ Nrd.cfg
 Omm.cfg
 tests/output/*
 .vscode/
+.idea/
 /External/dxc
 /External/AgilitySDK
 /External/Streamline
