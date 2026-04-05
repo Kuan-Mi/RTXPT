@@ -39,6 +39,7 @@
 #include "Lighting/LightsBaker.h"
 
 #include "Misc/ShaderDebug.h"
+#include "SampleCommon/Profiler.h"
 
 #include <map>
 
@@ -356,5 +357,9 @@ private:
 
     bool                                        m_asyncLoadingInProgress = false;
     bool                                        m_accumulationCompleted = false;
+
+    std::unique_ptr<Profiler>                   m_profiler;
+public:
+    Profiler* GetProfiler() const { return m_profiler.get(); }
 };
 

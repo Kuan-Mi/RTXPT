@@ -9,6 +9,7 @@
 */
 
 #include "Sample.h"
+#include "SampleCommon/Profiler.h"
 #include "SampleCommon/SampleBaseApp.h"
 
 #include <inttypes.h>
@@ -459,7 +460,24 @@ void SampleUI::buildUI(void)
             }
 
         }
+        if (ImGui::CollapsingHeader("GPU Pass Profiler"))
+        {
+            RAII_SCOPE(ImGui::Indent(indent); , ImGui::Unindent(indent); );
+            Profiler* profiler = m_app.GetProfiler();
+            if (profiler)
+            {
+                bool enabled = profiler->IsEnabled();
+                if (ImGui::Checkbox("Enable Profiler", &enabled))
+                    profiler->EnableProfiler(enabled);
 
+                bool accumulating = false;
+                ImGui::SameLine();
+                if (ImGui::Button("Reset"))
+                    profiler->ResetAccumulation();
+
+                profiler->BuildUI();
+            }
+        }
         if (ImGui::CollapsingHeader("System")) //, ImGuiTreeNodeFlags_DefaultOpen))
         {
             RAII_SCOPE(ImGui::Indent(indent); , ImGui::Unindent(indent); );
@@ -481,6 +499,8 @@ void SampleUI::buildUI(void)
                     m_app.GetCaptureScriptManager()->ScriptMainUI(warnColor, categoryColor, indent, m_currentScale);
                 }
             }
+
+
 
             if (ImGui::CollapsingHeader("Info")) //, ImGuiTreeNodeFlags_DefaultOpen))
             {

@@ -30,6 +30,7 @@
 #include "SampleCommon/ComputePipelineBaker.h"
 
 #include "SampleCommon/AccelerationStructureUtil.h"
+#include "SampleCommon/Profiler.h"
 
 #include "Lighting/Distant/EnvMapImportanceSamplingBaker.h"
 #include "Materials/MaterialsBaker.h"
@@ -118,6 +119,8 @@ Sample::Sample(donut::app::DeviceManager& deviceManager,
     }
 
     m_captureScriptManager = std::make_unique<CaptureScriptManager>(*this, m_ui, m_cmdLine);
+
+    m_profiler = std::make_unique<Profiler>(deviceManager);
 }
 
 Sample::~Sample()
@@ -1169,6 +1172,7 @@ void Sample::TransitionMeshBuffersToReadOnly(nvrhi::ICommandList* commandList)
 
 void Sample::UpdateSkinnedBLASs(nvrhi::ICommandList* commandList, uint32_t frameIndex) const
 {
+    ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::SkinnedBLASUpdates);
     commandList->beginMarker("Skinned BLAS Updates");
 
     // Transition all the buffers to their necessary states before building the BLAS'es to allow BLAS batching
@@ -1233,7 +1237,7 @@ void Sample::BuildTLAS(nvrhi::ICommandList* commandList) const
         instances.push_back(instanceDesc);
     }
     assert (m_subInstanceCount == subInstanceCount);
-
+    ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::TlasUpdate);
     commandList->beginMarker("TLAS Update");
     commandList->buildTopLevelAccelStruct(m_topLevelAS, instances.data(), instances.size(), nvrhi::rt::AccelStructBuildFlags::AllowEmptyInstances);
     commandList->endMarker();
@@ -1343,6 +1347,7 @@ void Sample::SetEnvMapOverrideSource(const std::string& envMapOverride)
 
 void Sample::PreUpdateLighting(nvrhi::CommandListHandle commandList, bool& needNewBindings)
 {
+    ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::PreUpdateLighting);
     RAII_SCOPE(m_commandList->beginMarker("PreUpdateLighting"); , m_commandList->endMarker(); );
 
     auto preUpdateCube = m_envMapBaker->GetEnvMapCube();
@@ -1359,6 +1364,7 @@ void Sample::PreUpdateLighting(nvrhi::CommandListHandle commandList, bool& needN
 
 void Sample::UpdateLighting(nvrhi::CommandListHandle commandList)
 {
+    ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::UpdateLighting);
     RAII_SCOPE( m_commandList->beginMarker("UpdateLighting");, m_commandList->endMarker(); );
 
     EMB_DirectionalLight dirLights[EnvMapBaker::c_MaxDirLights];
@@ -1890,6 +1896,9 @@ void Sample::PostProcessPostToneMapping(nvrhi::ICommandList* commandList, const 
 
 void Sample::Render(nvrhi::IFramebuffer* framebuffer)
 {
+    m_profiler->ResolvePreviousFrame();
+    
+    
     const auto& fbinfo = framebuffer->getFramebufferInfo();
     m_displaySize = m_renderSize = uint2(fbinfo.width, fbinfo.height);
     float lodBias = 0.f;
@@ -2034,7 +2043,7 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
     m_progressInitializingRenderer.Set(90);
 
     m_commandList->open();
-
+    
     bool needNewBindings = false;
     PathTracerCameraData cameraData;
     {
@@ -2067,6 +2076,9 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
         if(m_ommBaker) m_ommBaker->BuildOpacityMicromaps(*m_commandList, *m_scene);
         UpdateSkinnedBLASs(m_commandList, GetFrameIndex());
         m_commandList->compactBottomLevelAccelStructs(); // Compact acceleration structures that are tagged for compaction and have finished executing the original build
+
+        m_profiler->BeginSection(m_commandList, ProfilerSection::Frame);
+
         BuildTLAS(m_commandList);
         TransitionMeshBuffersToReadOnly(m_commandList);
         if (m_ommBaker) 
@@ -2076,6 +2088,7 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
         }
 
         m_materialsBaker->Update(m_commandList, m_scene, m_subInstanceData);
+        
         UploadSubInstanceData(m_commandList); // this is now partial subInstance data, but lights baker update requires it to find materials and create emissive triangle lights
 
         // Update input lighting, environment map, etc.
@@ -2209,9 +2222,11 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
 
     m_zoomTool->Render(m_commandList, m_renderTargets->LdrColor);
 
+    m_profiler->BeginSection(m_commandList, ProfilerSection::Blit);
     m_commandList->beginMarker("Blit");
     m_CommonPasses->BlitTexture(m_commandList, framebuffer, m_renderTargets->LdrColor, m_bindingCache.get());
     m_commandList->endMarker();
+    m_profiler->EndSection(m_commandList, ProfilerSection::Blit);
 
     if (m_ui.ShowDebugLines == true)
     {
@@ -2265,6 +2280,7 @@ void Sample::Render(nvrhi::IFramebuffer* framebuffer)
 
     nvrhi::ITexture* framebufferTexture = framebuffer->getDesc().colorAttachments[0].texture;
 
+    m_profiler->EndSection(m_commandList, ProfilerSection::Frame);
 
 	m_commandList->close();
 	GetDevice()->executeCommandList(m_commandList);
@@ -2437,6 +2453,7 @@ std::shared_ptr<donut::engine::Material> Sample::FindMaterial(int materialID) co
 
 void Sample::PathTrace(nvrhi::IFramebuffer* framebuffer, const SampleConstants & constants)
 {
+
     //m_commandList->beginMarker("MainRendering"); <- removed (for now) since added hierarchy reduces readability
 
     bool useStablePlanes = m_ui.RealtimeMode;
@@ -2456,6 +2473,7 @@ void Sample::PathTrace(nvrhi::IFramebuffer* framebuffer, const SampleConstants &
     if (useStablePlanes)
     {
         {
+            ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::PathTracePrePass);
             RAII_SCOPE(m_commandList->beginMarker("PathTracePrePass"); , m_commandList->endMarker(); );
 
             m_commandList->setTextureState(m_renderTargets->Depth, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
@@ -2474,6 +2492,7 @@ void Sample::PathTrace(nvrhi::IFramebuffer* framebuffer, const SampleConstants &
         }
 
         {
+            ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::VBufferExport);
             RAII_SCOPE(m_commandList->beginMarker("VBufferExport"); , m_commandList->endMarker(); );
 
             nvrhi::ComputeState state;
@@ -2492,9 +2511,11 @@ void Sample::PathTrace(nvrhi::IFramebuffer* framebuffer, const SampleConstants &
     }
 
     // In realtime mode, ScreenMotionVectors reference mode ScreenMotionVectors should be 0
+    m_profiler->BeginSection(m_commandList, ProfilerSection::LightingUpdateEnd);
     m_lightsBaker->UpdateEnd(m_commandList, *m_bindingCache, m_scene, m_materialsBaker, m_ommBaker, m_subInstanceBuffer, m_renderTargets->Depth, m_renderTargets->ScreenMotionVectors);  // <- in the future this will provide motion vectors except in case of reference mode
-
+    m_profiler->EndSection(m_commandList, ProfilerSection::LightingUpdateEnd);
     {
+        ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::PathTrace);
         RAII_SCOPE( m_commandList->beginMarker("PathTrace");, m_commandList->endMarker(); );
 
         state.shaderTable = ((useStablePlanes) ? (m_ptPipelineFillStablePlanes) : (m_ptPipelineReference))->GetShaderTable();
@@ -2539,6 +2560,7 @@ void Sample::PathTrace(nvrhi::IFramebuffer* framebuffer, const SampleConstants &
     }
 
     {
+        ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::DenoisingGuidesBake);
         RAII_SCOPE(m_commandList->beginMarker("Denoising Guides Bake"); , m_commandList->endMarker(); );
 
         m_denoisingGuidesBaker->DenoiseSpecHitT(m_commandList, m_bindingSet);
@@ -2595,9 +2617,12 @@ void Sample::Denoise(nvrhi::IFramebuffer* framebuffer)
 
         // Direct inputs to denoiser are reused between passes; there's redundant copies but it makes interfacing simpler
         nvrhi::TextureDesc tdesc = m_renderTargets->OutputColor->getDesc();
+        
+        m_profiler->BeginSection(m_commandList, ProfilerSection::PrepareInputs);
         m_commandList->beginMarker("PrepareInputs");
         m_postProcess->Apply(m_commandList, preparePassType, m_constantBuffer, miniConstants, m_bindingSet, m_bindingLayout, tdesc.width, tdesc.height);
         m_commandList->endMarker();
+        m_profiler->BeginSection(m_commandList, ProfilerSection::PrepareInputs);
 
         const float timeDeltaBetweenFrames = m_cmdLine.noWindow ? 1.f/60.f : -1.f; // if we're rendering without a window we set a fix timeDeltaBetweenFrames to ensure that output is deterministic
         bool enableValidation = m_ui.DebugView == DebugViewType::StablePlane_DenoiserValidation;
@@ -2620,6 +2645,7 @@ void Sample::Denoise(nvrhi::IFramebuffer* framebuffer)
 
 void Sample::PostProcessAA(nvrhi::IFramebuffer* framebuffer, bool reset)
 {
+    ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::Denoising);
     if (m_ui.RealtimeMode)
     {
         if (m_ui.RealtimeAA == 0)

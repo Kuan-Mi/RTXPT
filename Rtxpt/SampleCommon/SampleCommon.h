@@ -40,6 +40,7 @@ public:
 };
 // Should expand to something like: GenericScope scopevar_1( [ & ]( ) { ImGui::PushID( Scene::Components::TypeName( i ).c_str( ) ); }, [ & ]( ) { ImGui::PopID( ); } );
 #define RAII_SCOPE( enter, leave ) GenericScope TOKEN_COMBINE( _generic_raii_scopevar_, __COUNTER__ ) ( [&](){ enter }, [&](){ leave } );
+// #define RAII_SCOPE( enter, leave ) ;
 // Usage example: RAII_SCOPE( ImGui::PushID( keyID );, ImGui::PopID( ); )
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
