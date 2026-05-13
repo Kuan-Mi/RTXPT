@@ -542,9 +542,9 @@ void main( uint3 dispatchThreadID : SV_DispatchThreadID )
             u_DenoiserSpecRadianceHitDist[pixelPos] = RELAX_FrontEnd_PackRadianceAndHitDist( denoiserSpecRadiance.xyz, specHitT, true );
     #else
             float4 hitParams = g_Const.denoisingHitParamConsts;
-            float diffNormHitDistance = REBLUR_FrontEnd_GetNormHitDist( 0, virtualViewspaceZ, hitParams, 1);
+            float diffNormHitDistance = REBLUR_FrontEnd_GetNormHitDist( 0, virtualViewspaceZ, hitParams.xyz, 1);
             u_DenoiserDiffRadianceHitDist[pixelPos] = REBLUR_FrontEnd_PackRadianceAndNormHitDist( denoiserDiffRadiance.xyz, /*diffNormHitDistance*/0, true );
-            float specNormHitDistance = REBLUR_FrontEnd_GetNormHitDist( specHitT, virtualViewspaceZ, hitParams, sp.GetRoughness());
+            float specNormHitDistance = REBLUR_FrontEnd_GetNormHitDist( specHitT, virtualViewspaceZ, hitParams.xyz, sp.GetRoughness());
             u_DenoiserSpecRadianceHitDist[pixelPos] = REBLUR_FrontEnd_PackRadianceAndNormHitDist( denoiserSpecRadiance.xyz, specNormHitDistance, true );
     #endif
         }

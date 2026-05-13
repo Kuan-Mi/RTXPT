@@ -14,7 +14,7 @@
 
 #include "../Shaders/PathTracerBridgeDonut.hlsli"
 #include "../Shaders/PathTracer/PathTracer.hlsli"
-#include "../RTXDI/SurfaceData.hlsli"
+// #include "../RTXDI/SurfaceData.hlsli"
 
 [numthreads(NUM_COMPUTE_THREADS_PER_DIM, NUM_COMPUTE_THREADS_PER_DIM, 1)]
 void main( uint2 dispatchThreadID : SV_DispatchThreadID )
