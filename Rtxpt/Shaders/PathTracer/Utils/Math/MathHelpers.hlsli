@@ -93,8 +93,8 @@ float2 world_to_latlong_map(float3 dir)
 {
     float3 p = normalize(dir);
     float2 uv;
-    uv.x = atan2(p.x, -p.z) * K_1_2PI + 0.5f;
-    uv.y = acos(p.y) * K_1_PI;
+    uv.x = atan2(p.x, p.z) * K_1_2PI + 0.5f;
+    uv.y = 1 - acos(p.y) * K_1_PI;
     return uv;
 }
 
@@ -106,12 +106,12 @@ float2 world_to_latlong_map(float3 dir)
 float3 latlong_map_to_world(float2 latlong)
 {
     float phi = K_PI * (2.f * saturate(latlong.x) - 1.f);
-    float theta = K_PI * saturate(latlong.y);
+    float theta = K_PI * (1.f - saturate(latlong.y));   // inverted: uv.y = 1 - acos(p.y)/pi
     float sinTheta = sin(theta);
     float cosTheta = cos(theta);
     float sinPhi = sin(phi);
     float cosPhi = cos(phi);
-    return float3(sinTheta * sinPhi, cosTheta, -sinTheta * cosPhi);
+    return float3(sinTheta * sinPhi, cosTheta, sinTheta * cosPhi);  // z no longer negated: uv.x = atan2(x, z)
 }
 
 /******************************************************************************
