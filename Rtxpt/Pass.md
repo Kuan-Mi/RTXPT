@@ -109,13 +109,143 @@ CPU→GPU 数据上传。把 CPU 上计算好的 `LightingControlData` 控制结
 
 ## 2. PathTracePrePass（BuildStablePlanes RT Pass）
 
-以 Whitted-style 追踪 delta 路径（完美镜面/折射链），为每像素建立最多 3 层 `StablePlane` 结构。输出：
-- `Depth`、`MotionVectors`、`Throughput`、`SpecularHitT`
-- `StablePlanesBuffer`
+宏：`PATH_TRACER_MODE = PATH_TRACER_MODE_BUILD_STABLE_PLANES`
 
-**故意不做 NEE/漫反射采样**，只建立几何结构。
+以 Whitted-style 只追踪 **delta 路径**（完美镜面 / 折射链），不做 NEE 或漫反射采样，目的是为每像素建立最多 3 层 `StablePlane` 几何骨架，供后续 `PathTrace`（FillStablePlanes）复用。
 
-> **注意**：此 Pass 输出的 `Depth` 和 `MotionVectors` 是 `LightingUpdateEnd` 的必要输入，这是它被插在中间的原因。
+### 输出详解
+
+#### 2.1 `u_Depth`（`RWTexture2D<float>`, register u6）
+**NDC 深度（clip-space z/w）。**
+
+写入位置：`Bridge::ExportSurface` / `Bridge::ExportNonSurface`
+
+- **命中表面**：取 dominant StablePlane 的 *virtualWorldPos*（沿摄像机光线走 `sceneLengthForMVs` 的虚拟世界坐标，穿透了镜面/折射链后的等效位置）变换到 clip space，写 `clipPos.z / clipPos.w`。  
+- **Miss（天空）**：用天空等效距离 `kEnvironmentMapSceneDistance` 作 virtualWorldPos，同样输出 clip-space z/w。  
+- **无效帧**：初始化为 `0`（`ExportSurfaceInit`），作为下游判断数据是否有效的信号。
+
+**用途**：DLSS-RR / TAA 的深度输入；`LightingUpdateEnd` 的 `ProcessFeedbackHistoryP1a~P3` 用它进行深度比较和 tile 反馈聚合。
+
+---
+
+#### 2.2 `u_MotionVectors`（`RWTexture2D<float4>`, register u5）
+**屏幕空间运动向量（xy 为像素偏移，zw 预留为 0）。**
+
+写入位置：`Bridge::ExportSurface` / `Bridge::ExportNonSurface`
+
+计算过程（`StablePlanesHandleHit` → `setAsBase` 分支）：
+1. `virtualWorldPos = cameraRay.origin + cameraRay.dir * sceneLengthForMVs`  
+   ↳ `sceneLengthForMVs` 取自 `MotionVectorSceneLength`（若某顶点标记了 PSD 截断点则在该处锁住）或完整路径长度；对 miss 则用天空距离。
+2. `worldMotion = surfaceData.prevPosW − posW`（表面本身在上一帧的世界位移）
+3. 通过累积的 `imageXform`（镜面/折射堆叠的旋转矩阵）将 `worldMotion` 变换为等效虚拟运动：`virtualWorldMotion = imageXform × worldMotion`
+4. `motionVectors = computeMotionVector(virtualWorldPos, virtualWorldPos + virtualWorldMotion)` → 两帧投影差
+
+**特殊情况**：若路径曾经过标记了 `isPSDBlockMotionVectorsAtSurface()` 的高曲率表面（`blockedAtSurface = true`），则 roughness 被强制压低（当作镜面），让 DLSS-RR 用 specular MV 路径推断运动。
+
+**用途**：DLSS-RR / TAA 的运动向量输入；`LightingUpdateEnd` 中的反馈重映射（P1a~P3）需要它。
+
+---
+
+#### 2.3 `u_Throughput`（`RWTexture2D<uint>`, register u4，Pack_R11G11B10_FLOAT）
+**穿透率（throughput）：路径从摄像机到 dominant StablePlane 基点所有镜面/折射界面的累积能量透过率。**
+
+写入位置：`Bridge::ExportSurface`
+
+- **命中表面**：`Pack_R11G11B10_FLOAT(saturate(path.GetThp()))` — 把 `float3 thp` 压缩为 R11G11B10 编码写入。  
+- **Miss / 无表面**：写 `0`（ExportNonSurface）。
+
+`thp` 的含义：  
+每次 delta lobe scatter 时路径会执行 `SplitDeltaPath`，其中对 throughput 乘以 BSDF lobe 的 `thp`（`lobe.thp`），等效于镜面菲涅耳 × 折射 IOR 校正。最终写入的是 **从相机到这个 stable plane 基点的累积 spectral throughput**。
+
+**用途**：FillStablePlanes pass 的 BSDF estimate / denoising weight；ReSTIR DI/GI 的可见性估计（G-buffer weight）。
+
+---
+
+#### 2.4 `u_SpecularHitT`（`RWTexture2D<float>`, register u3）
+**镜面链命中距离（specular hit distance），用于降噪器的 specular lobe hit-T 输入。**
+
+写入时序分两步（仅 dominant StablePlane 路径）：
+
+1. **ExportSpecHitTStart**（命中 dominant 表面时）：写入 `−path.GetSceneLength()`（负值，作 flag 标记"已记录起点"）。  
+2. **ExportSpecHitTStop**（漫反射弹射首次命中时）：读出负值 `denoisingSceneLength`，计算 `specHitT = max(0, currentSceneLength + denoisingSceneLength)`，即 **镜面链结束点到首次漫反射命中点的光线段长度**，再写回正值。  
+   若仍为负（路径未找到漫反射端点，如进入天空），则保持不变；下游 `DenoiseSpecHitT` pass 会对结果做空间滤波。
+
+**用途**：DLSS-RR 和 NRD 降噪器使用 SpecularHitT 估算镜面反射的命中深度，改善时序稳定性和 specular denoising 质量。
+
+---
+
+#### 2.5 `u_StablePlanesHeader`（`RWTexture2DArray<uint>`, register u40）
+**StablePlane 分支 ID 头表，每像素最多 3 层。**
+
+格式：`[W × H × 4]` 的 uint 数组  
+- Slice 0～2：每个 plane 对应的 `stableBranchID`  
+  - `cStablePlaneInvalidBranchID (0xFFFFFFFF)`：该 plane 未使用  
+  - `cStablePlaneEnqueuedBranchID (0xFFFFFFFE)`：已入队等待探索  
+  - 正常值：delta 路径的位编码分支 ID（每 2 bit 代表一个 delta lobe 选择）  
+- Slice 3：`asuint(FirstHitRayLength)` — 第一次表面命中的光线长度（由 `StoreFirstHitRayLengthAndClearDominantToZero` 写入）
+
+**用途**：FillStablePlanes pass 通过 Header 中的 branchID 判断每条路径属于哪个 plane（`StablePlaneIsOnPlane`），并决定 radiance 沉积目标。
+
+---
+
+#### 2.6 `u_StablePlanesBuffer`（`RWStructuredBuffer<StablePlane>`, register u42）
+**每个 StablePlane 的完整几何与辐射数据。**
+
+`StablePlane` 结构体字段（`StablePlanes.hlsli`）：
+
+| 字段 | 含义 |
+|------|------|
+| `RayOrigin` | 该 plane 基点的世界坐标（表面命中点，减去偏移以便重新追踪） |
+| `RayDir` | 到达该基点的入射方向 |
+| `SceneLength` | 从相机到该基点的累积光线长度 |
+| `LastRayTCurrent` | 最后一次光线 t 值（预留字段） |
+| `VertexIndexAndRoughness` | 高 16 bit = 顶点深度索引；低 16 bit = f16 roughness |
+| `PackedThpAndMVs` | fp16 packed：`thp.xyz`（3通道）+ `motionVectors.xyz`（3通道） |
+| `PackedDenoiserSigmaAndCounts` | 降噪 sigma 估计 + bounce 计数 |
+| `PackedBSDFEstimate` | diff/spec BSDF estimate（fp16 packed，供降噪器用作 albedo 分解） |
+| `PackedNoisyRadianceAndSpecAvg` | FillStablePlanes 写入的含噪辐射（fp16 accumulate） |
+| `FlagsAndVertexIndex / PackedCounters` | flags（dominant、onBranch 等）和各类计数器 |
+
+**写入**：`StablePlanesContext::StoreStablePlane()` 在每条 delta 路径到达基点时调用。  
+**用途**：FillStablePlanes pass 从每个 plane 的 `RayOrigin + RayDir` 出发，发射漫反射/NEE 光线；降噪器读取 roughness、worldNormal、BSDFEstimate 作 guide buffer。
+
+---
+
+#### 2.7 `u_StableRadiance`（`RWTexture2D<float4>`）
+**稳定辐射（StableRadiance）：delta 路径沿途所有无噪声辐射的累积。**
+
+写入路径（`PathTracer.hlsli` → `AccumulatePathRadiance`）：
+
+```hlsl
+#elif PATH_TRACER_MODE==PATH_TRACER_MODE_BUILD_STABLE_PLANES
+    workingContext.StablePlanes.AccumulateStableRadiance(path.GetPixelPos(), radiance);
+```
+
+在 BUILD pass 中，**所有 `AccumulatePathRadiance` 调用都写到这里**，包括：
+- delta 路径途经的 **emissive 表面**直接发光
+- delta 路径最终 miss 时命中的**天空 / EnvMap 辐射**
+
+初始化：`StartPixel` 中先调用 `StoreStableRadiance(pixelPos, 0)` 清零，再逐段累加。
+
+对比 FILL pass：当 `stablePlaneOnBranch == true` 时跳过写入 `path.L`，因为 BUILD pass 已将该段收入 `StableRadiance`；只有离开 delta 分支（`stablePlaneOnBranch == false`）的漫反射辐射才进入含噪的 `path.L`。
+
+**用途**：PostProcess / Blit 合成时直接叠加到最终图像，不经过 denoiser。由于 delta 路径是确定性的（无随机采样），这部分辐射本身无噪且时序稳定。
+
+---
+
+### 输出总结
+
+| 输出 | 格式 | 写入条件 | 主要下游消费者 |
+|------|------|---------|----------------|
+| `Depth` | float (clip-space z/w) | dominant plane 命中/miss | LightingUpdateEnd、DLSS-RR |
+| `MotionVectors` | float4 (xy=屏幕偏移) | dominant plane 命中/miss | LightingUpdateEnd、DLSS-RR/TAA |
+| `Throughput` | uint (R11G11B10) | dominant plane 命中 | FillStablePlanes、ReSTIR |
+| `SpecularHitT` | float | dominant plane + 后续漫反射命中 | DenoiseSpecHitT、DLSS-RR |
+| `StablePlanesHeader` | uint[W×H×4] | 每个 delta 分支 | FillStablePlanes |
+| `StablePlanesBuffer` | struct[W×H×3] | 每个 delta 分支 | FillStablePlanes、Denoiser |
+| `StableRadiance` | float4 | delta 路径上的 emissive 表面 | PostProcess/Blit |
+
+> **注意**：此 Pass 输出的 `Depth` 和 `MotionVectors` 是 `LightingUpdateEnd` 的必要输入，这是它被插在 `LightingUpdateBegin` 和 `LightingUpdateEnd` 之间的原因。
 
 ---
 
