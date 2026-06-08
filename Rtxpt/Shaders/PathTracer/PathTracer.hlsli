@@ -449,10 +449,6 @@ namespace PathTracer
             // convert to environment map's local dir (as it supports its own rotation matrix)
             float3 localDir = envMap.ToLocal(rayDir);     
             float3 Le = envMap.EvalLocal(localDir, mipLevel);
-            if(rayDir.y > 0) 
-                Le = 0;
-        else
-                   Le = 1;
 
             // figure out MIS vs our lighting technique, if any
             float misWeight = 1.0f;

@@ -116,39 +116,6 @@ namespace PathTracer
         if (vertexIndex == 1)
             workingContext.StablePlanes.StoreFirstHitRayLengthAndClearDominantToZero(pixelPos, path.GetSceneLength());
 
-        if (vertexIndex == 1)
-        {
-            // DEBUG: visualize next ray direction after second hit
-            DeltaLobe _dbgDeltaLobes[cMaxDeltaLobes]; uint _dbgDeltaLobeCount; float _dbgNonDeltaPart;
-            surfaceData.bsdf.evalDeltaLobes(surfaceData.shadingData, _dbgDeltaLobes, _dbgDeltaLobeCount, _dbgNonDeltaPart);
-            float3 _dbgNextDir = (_dbgDeltaLobeCount > 0) ? _dbgDeltaLobes[0].dir : surfaceData.shadingData.N;
-
-_dbgNextDir = surfaceData.shadingData.N;
-            _dbgNextDir = _dbgNextDir.y >0?0:1;
-
-            workingContext.StablePlanes.StoreStableRadiance(pixelPos, _dbgNextDir * 0.5 + 0.5);
-            path.terminate();
-            return;
-        }
-
-
-        if (vertexIndex == 1)
-        {
-            // DEBUG: visualize initial ray origin
-            const Ray _dbgCameraRay = Bridge::computeCameraRay(pixelPos);
-
-            float3 _dbgOrigin = (_dbgCameraRay.origin);
-
-            float3 diff = _dbgOrigin - float3(0,1.5,-5);
-
-            diff *= 10;
-
-            workingContext.StablePlanes.StoreStableRadiance(pixelPos, diff);
-            path.terminate();
-            return;
-        }
-
-
         bool setAsBase = true;    // if path no longer stable, stop and set as a base
         float passthroughOverride = 0.0;
         if ( (vertexIndex < workingContext.PtConsts.maxStablePlaneVertexDepth) && !pathStopping) // Note: workingContext.PtConsts.maxStablePlaneVertexDepth already includes cStablePlaneMaxVertexIndex and MaxBounceCount
