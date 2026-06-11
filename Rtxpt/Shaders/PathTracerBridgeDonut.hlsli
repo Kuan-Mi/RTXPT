@@ -996,7 +996,7 @@ bool Bridge::AlphaTestVisibilityRay(uint instanceID, uint instanceIndex, uint ge
 
 // There's a relatively high cost to this when used in large shaders just due to register allocation required for alphaTest, even if all geometries are opaque.
 // Consider simplifying alpha testing - perhaps splitting it up from the main geometry path, load it with fewer indirections or something like that.
-bool Bridge::traceVisibilityRay(RayDesc ray, const RayCone rayCone, const int pathVertexIndex, DebugContext debug)
+bool Bridge::traceVisibilityRay(RayDesc ray, const RayCone rayCone, const int pathVertexIndex, DebugContext debug, uint2 pixelPos)
 {
     RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, RTXPT_FLAG_ALLOW_OPACITY_MICROMAPS> rayQuery;
     rayQuery.TraceRayInline(SceneBVH, RAY_FLAG_NONE, 0xff, ray);
@@ -1025,7 +1025,7 @@ bool Bridge::traceVisibilityRay(RayDesc ray, const RayCone rayCone, const int pa
     if (rayQuery.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
         ray.TMax = rayQuery.CommittedRayT();    // <- this gets passed via NvMakeHitWithRecordIndex/NvInvokeHitObject as RayTCurrent() or similar in ubershader path
 
-    if( debug.IsDebugPixel() )
+    if( debug.IsDebugPixel(pixelPos) )
         debug.DrawLine(ray.Origin, ray.Origin+ray.Direction*ray.TMax, float4(visible.x, visible.x, 0.8, 0.2), float4(visible.x, visible.x, 0.8, 0.2));
 #endif
 

@@ -191,7 +191,7 @@ namespace PathTracer
         /*[branch]*/ if (lightSample.Valid())   // if sample's bad, skip; we tried casting the ray anyway but ignoring the results - didn't yield better perf
         {
             RayDesc ray = ComputeVisibilityRay(lightSample, shadingData);
-            visible = Bridge::traceVisibilityRay(ray, preScatterPath.rayCone, preScatterPath.getVertexIndex(), workingContext.Debug);
+            visible = Bridge::traceVisibilityRay(ray, preScatterPath.rayCone, preScatterPath.getVertexIndex(), workingContext.Debug, preScatterPath.GetPixelPos());
         }
 
         // if( workingContext.Debug.IsDebugPixel() )

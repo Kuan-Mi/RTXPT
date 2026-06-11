@@ -398,7 +398,8 @@ namespace PathTracer
 
         // good place for debug viz
 #if ENABLE_DEBUG_VIZUALISATIONS && ENABLE_DEBUG_LINES_VIZ && !NON_PATH_TRACING_PASS// && PATH_TRACER_MODE!=PATH_TRACER_MODE_BUILD_STABLE_PLANES <- let's actually show the build rays - maybe even add them some separate effect in the future
-        if( workingContext.Debug.IsDebugPixel() )
+        if( workingContext.Debug.IsDebugPixel(path.GetPixelPos()) ) // fix: stale no-arg IsDebugPixel() call - does not compile with ENABLE_DEBUG_LINES_VIZ
+
             workingContext.Debug.DrawLine(rayOrigin, rayOrigin+rayDir*rayTCurrent, float4(0.6.xxx, 0.5), float4(1.0.xxx, 1.0));
 #endif
     }
