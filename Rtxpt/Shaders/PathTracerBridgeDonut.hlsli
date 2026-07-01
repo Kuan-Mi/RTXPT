@@ -286,19 +286,19 @@ void ApplyNormalMapRTXPT(inout MaterialProperties result, float4 tangent, float4
     if (tangent.w == 0)
         return;
 
-    float4 samplePackedNormal = normalsTextureValue;
-    samplePackedNormal.a *= samplePackedNormal.r;
-    float2 packedNormal = samplePackedNormal.ag;
-    normalsTextureValue.xy = packedNormal;
+    // float4 samplePackedNormal = normalsTextureValue;
+    // samplePackedNormal.a *= samplePackedNormal.r;
+    // float2 packedNormal = samplePackedNormal.ag;
+    // normalsTextureValue.xy = packedNormal;
 
 
     normalsTextureValue.xy = normalsTextureValue.xy * 2.0 - 1.0;
     normalsTextureValue.xy *= normalTextureScale;
 
-    //if (normalsTextureValue.z <= 0)
+    if (normalsTextureValue.z <= 0)
         normalsTextureValue.z = sqrt(saturate(1.0 - square(normalsTextureValue.x) - square(normalsTextureValue.y)));
-    //else
-    //    normalsTextureValue.z = abs(normalsTextureValue.z * 2.0 - 1.0);
+    else
+       normalsTextureValue.z = abs(normalsTextureValue.z * 2.0 - 1.0);
 
     float squareNormalMapLength = dot(normalsTextureValue.xyz, normalsTextureValue.xyz);
 
