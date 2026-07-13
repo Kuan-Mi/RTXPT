@@ -38,6 +38,8 @@ bool CommandLineOptions::InitFromCommandLine(int _argc, char const* const* _argv
 			("vk", "Render using Vulkan", value(useVulkan))
             ("stopAnimations", "Always start the scene with animations disabled", value(stopAnimations))
             ("noSER", "Disable Shader Execution Reordering", value(disableSER))
+            ("disableOmm", "Disable Opacity Micro-Maps for acceleration-structure parity tests", value(disableOmm))
+            ("blasDiagnostics", "Log detailed BLAS geometry, build flags, and input totals", value(blasDiagnostics))
             ("adapterIndex", "--adapterIndex must be followed by a number used to identify the preferred adapter index, e.g '--adapterIndex 0' or '--adapterIndex 1'; default is -1 (automatic)", value(adapterIndex))
             ("captureSimple", "Trigger simple screenshot capture with default warmup; use capturePath to specify output file.", value(captureSimple))
             ("captureSequence", "Trigger sequence capture; use capturePath to specify output file, sequenceWarmupTime, sequenceStartTime, sequenceFPS and sequenceFrames to control.", value(captureSequence))

@@ -27,6 +27,8 @@ struct CommandLineOptions
 	bool useVulkan = false;
     bool stopAnimations = false;
 	bool disableSER = false;
+    bool disableOmm = false;
+    bool blasDiagnostics = false;
 
     std::string capturePath = "";
     bool captureSimple = false;

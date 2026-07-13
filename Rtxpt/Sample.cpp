@@ -59,6 +59,7 @@ using namespace donut::render;
 
 #include <fstream>
 #include <iostream>
+#include <string>
 
 #include <thread>
 
@@ -87,6 +88,52 @@ extern "C"
 const char* g_windowTitle = "RTX Path Tracing v1.8.1";
 
 const float c_envMapRadianceScale = 1.0f / 4.0f; // used to make input 32bit float radiance fit into 16bit float range that baker supports; going lower than 1/4 causes issues with current BC6U compression algorithm when used
+
+static bool g_enableBlasDiagnostics = false;
+
+#define BLAS_DIAGNOSTIC(...) \
+    do { if (g_enableBlasDiagnostics) donut::log::info(__VA_ARGS__); } while (false)
+
+static const char* BlasBuildFlagsToString(nvrhi::rt::AccelStructBuildFlags flags)
+{
+    static thread_local std::string s;
+    s.clear();
+    auto add = [&](nvrhi::rt::AccelStructBuildFlags bit, const char* name)
+    {
+        if ((flags & bit) != 0)
+        {
+            if (!s.empty()) s += "|";
+            s += name;
+        }
+    };
+    add(nvrhi::rt::AccelStructBuildFlags::AllowUpdate, "AllowUpdate");
+    add(nvrhi::rt::AccelStructBuildFlags::AllowCompaction, "AllowCompaction");
+    add(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace, "PreferFastTrace");
+    add(nvrhi::rt::AccelStructBuildFlags::PreferFastBuild, "PreferFastBuild");
+    add(nvrhi::rt::AccelStructBuildFlags::MinimizeMemory, "MinimizeMemory");
+    add(nvrhi::rt::AccelStructBuildFlags::PerformUpdate, "PerformUpdate");
+    add(nvrhi::rt::AccelStructBuildFlags::AllowEmptyInstances, "AllowEmptyInstances");
+    if (s.empty()) s = "None";
+    return s.c_str();
+}
+
+static const char* GeometryFlagsToString(nvrhi::rt::GeometryFlags flags)
+{
+    static thread_local std::string s;
+    s.clear();
+    auto add = [&](nvrhi::rt::GeometryFlags bit, const char* name)
+    {
+        if ((flags & bit) != 0)
+        {
+            if (!s.empty()) s += "|";
+            s += name;
+        }
+    };
+    add(nvrhi::rt::GeometryFlags::Opaque, "Opaque");
+    add(nvrhi::rt::GeometryFlags::NoDuplicateAnyHitInvocation, "NoDuplicateAnyHitInvocation");
+    if (s.empty()) s = "None";
+    return s.c_str();
+}
 
 static FPSLimiter g_FPSLimiter;
 
@@ -139,6 +186,7 @@ void Sample::DebugDrawLine( float3 start, float3 stop, float4 col1, float4 col2 
 void Sample::Init(const std::string& preferredScene,
     const std::shared_ptr<donut::engine::ShaderFactory>& shaderFactory)
 {
+    g_enableBlasDiagnostics = m_cmdLine.blasDiagnostics;
     m_shaderFactory = shaderFactory;
 
     m_CommonPasses = std::make_shared<engine::CommonRenderPasses>(GetDevice(), m_shaderFactory);
@@ -378,7 +426,7 @@ void Sample::Init(const std::string& preferredScene,
     // Command list!
     m_commandList = device->createCommandList();
 
-    if(device->queryFeatureSupport(nvrhi::Feature::RayTracingOpacityMicromap))
+    if(!m_cmdLine.disableOmm && device->queryFeatureSupport(nvrhi::Feature::RayTracingOpacityMicromap))
         m_ommBaker = std::make_shared<OmmBaker>(device, m_DescriptorTable, m_TextureCache, m_shaderFactory);
 
     // Get all scenes in "assets" folder
@@ -1060,22 +1108,102 @@ bool Sample::CreatePTPipeline(engine::ShaderFactory& shaderFactory)
 
 void Sample::CreateBlases(nvrhi::ICommandList* commandList)
 {
+    BLAS_DIAGNOSTIC("[RTXPT][BLAS] CreateBlases begin: meshCount=%zu excludeTransmissive=%d OMMBaker=%s OMMDisabled=%d",
+        m_scene->GetSceneGraph()->GetMeshes().size(),
+        m_ui.AS.ExcludeTransmissive ? 1 : 0,
+        m_ommBaker ? "present" : "null",
+        m_cmdLine.disableOmm ? 1 : 0);
+
+    uint32_t builtBlasCount = 0;
+    uint64_t totalIndices = 0;
+    uint64_t totalVertices = 0;
+
     for (const std::shared_ptr<MeshInfo>& mesh : m_scene->GetSceneGraph()->GetMeshes())
     {
         if (mesh->isSkinPrototype) //buffers->hasAttribute(engine::VertexAttribute::JointWeights))
+        {
+            BLAS_DIAGNOSTIC("[RTXPT][BLAS] skip skin prototype mesh='%s' geomCount=%zu",
+                mesh->name.c_str(), mesh->geometries.size());
             continue; // skip the skinning prototypes
+        }
 
         bvh::Config cfg = { .excludeTransmissive = m_ui.AS.ExcludeTransmissive };
 
         nvrhi::rt::AccelStructDesc blasDesc = bvh::GetMeshBlasDesc(cfg , *mesh, nullptr, false);
         assert((int)blasDesc.bottomLevelGeometries.size() < (1 << 12)); // we can only hold 13 bits for the geometry index in the HitInfo - see GeometryInstanceID in SceneTypes.hlsli
 
+        BLAS_DIAGNOSTIC("[RTXPT][BLAS] mesh='%s' geomCount=%zu buildFlags=%s isTopLevel=%d trackLiveness=%d vertexOffset=%u indexOffset=%u skinPrototypeRefs=%ld",
+            mesh->name.c_str(),
+            blasDesc.bottomLevelGeometries.size(),
+            BlasBuildFlagsToString(blasDesc.buildFlags),
+            blasDesc.isTopLevel ? 1 : 0,
+            blasDesc.trackLiveness ? 1 : 0,
+            mesh->vertexOffset,
+            mesh->indexOffset,
+            (long)mesh->skinPrototype.use_count());
+
+        for (size_t geomIndex = 0; geomIndex < blasDesc.bottomLevelGeometries.size(); ++geomIndex)
+        {
+            const nvrhi::rt::GeometryDesc& geometryDesc = blasDesc.bottomLevelGeometries[geomIndex];
+            if (geometryDesc.geometryType == nvrhi::rt::GeometryType::Triangles)
+            {
+                const auto& tri = geometryDesc.geometryData.triangles;
+                totalIndices += tri.indexCount;
+                totalVertices += tri.vertexCount;
+
+                bool alphaTest = false;
+                bool excludeNee = false;
+                bool skipRender = false;
+                const char* materialName = "<null>";
+                if (geomIndex < mesh->geometries.size() && mesh->geometries[geomIndex] && mesh->geometries[geomIndex]->material)
+                {
+                    materialName = mesh->geometries[geomIndex]->material->name.c_str();
+                    PTMaterial& materialPT = *PTMaterial::SafeCast(mesh->geometries[geomIndex]->material);
+                    alphaTest = materialPT.EnableAlphaTesting;
+                    excludeNee = materialPT.ExcludeFromNEE;
+                    skipRender = materialPT.SkipRender;
+                }
+
+                BLAS_DIAGNOSTIC("[RTXPT][BLAS]   geom[%zu] type=Triangles flags=%s useTransform=%d material='%s' alphaTest=%d excludeNEE=%d skipRender=%d indexCount=%u indexOffset=%llu indexFormat=%d vertexCount=%u vertexOffset=%llu vertexStride=%u vertexFormat=%d hasOMM=%d ommIndexCount=%u",
+                    geomIndex,
+                    GeometryFlagsToString(geometryDesc.flags),
+                    geometryDesc.useTransform ? 1 : 0,
+                    materialName,
+                    alphaTest ? 1 : 0,
+                    excludeNee ? 1 : 0,
+                    skipRender ? 1 : 0,
+                    tri.indexCount,
+                    (unsigned long long)tri.indexOffset,
+                    (int)tri.indexFormat,
+                    tri.vertexCount,
+                    (unsigned long long)tri.vertexOffset,
+                    tri.vertexStride,
+                    (int)tri.vertexFormat,
+                    tri.opacityMicromap ? 1 : 0,
+                    tri.numOmmUsageCounts);
+            }
+            else
+            {
+                BLAS_DIAGNOSTIC("[RTXPT][BLAS]   geom[%zu] type=%d flags=%s useTransform=%d",
+                    geomIndex,
+                    (int)geometryDesc.geometryType,
+                    GeometryFlagsToString(geometryDesc.flags),
+                    geometryDesc.useTransform ? 1 : 0);
+            }
+        }
+
         nvrhi::rt::AccelStructHandle as = GetDevice()->createAccelStruct(blasDesc);
 
         nvrhi::utils::BuildBottomLevelAccelStruct(commandList, as, blasDesc);
 
         mesh->accelStruct = as;
+        ++builtBlasCount;
     }
+
+    BLAS_DIAGNOSTIC("[RTXPT][BLAS] CreateBlases end: built=%u totalIndices=%llu totalVertices=%llu",
+        builtBlasCount,
+        (unsigned long long)totalIndices,
+        (unsigned long long)totalVertices);
 }
 
 void Sample::UploadSubInstanceData(nvrhi::ICommandList* commandList)
