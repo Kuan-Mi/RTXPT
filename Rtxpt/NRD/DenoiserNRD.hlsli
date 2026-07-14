@@ -13,7 +13,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define NRD_HEADER_ONLY
-#include <NRDConfig.hlsli>
+#include <NRDEncoding.hlsli>
 #if NRD_NORMAL_ENCODING != 2 // 2 == NRD_NORMAL_ENCODING_R10G10B10A2_UNORM
 #error not configured correctly
 #endif

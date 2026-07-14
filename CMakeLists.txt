@@ -19,7 +19,10 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 
-set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
+# Recent MSVC toolsets diagnose several third-party headers more aggressively
+# than the SDK's pinned compiler. Keep the diagnostics visible, but do not make
+# packaging depend on a specific Visual Studio warning set.
+set(CMAKE_COMPILE_WARNING_AS_ERROR OFF)
 
 if (MSVC)
 	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

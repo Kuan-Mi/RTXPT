@@ -110,6 +110,13 @@ public:
     std::optional<int>          maxBounces;
     std::optional<int>          maxDiffuseBounces;
     std::optional<float>        textureMIPBias;
+    // Comparison/capture scenes need these values to be deterministic instead
+    // of inheriting the command-line defaults and startup quality preset.
+    std::optional<bool>         useNEE;
+    std::optional<int>          neeType;
+    std::optional<int>          realtimeSamplesPerPixel;
+    std::optional<int>          realtimeAA;
+    std::optional<int>          environmentMapResolution;
 
     [[nodiscard]] std::shared_ptr<SceneGraphLeaf> Clone() override;
     virtual void Load(const Json::Value& node) override;

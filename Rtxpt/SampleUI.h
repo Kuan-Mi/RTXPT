@@ -237,7 +237,9 @@ struct SampleUIData
     //bool                                DLSSDynamicResChange = true;
     //bool                                DLSSDebugShowFullRenderingBuffer = false;
     bool                                IsDLSSSuported = false;
-    static constexpr SI::DLSSMode       DLSSModeDefault = SI::DLSSMode::eBalanced;
+    // Native-resolution Ray Reconstruction for UnityRHI PIX parity captures.
+    // Both render and display extents stay at the requested 1280x720.
+    static constexpr SI::DLSSMode       DLSSModeDefault = SI::DLSSMode::eDLAA;
     SI::DLSSMode                        DLSSMode = DLSSModeDefault;
     SI::DLSSMode                        DLSSLastMode = SI::DLSSMode::eOff;
     donut::math::uint2                  DLSSLastDisplaySize = { 0,0 };

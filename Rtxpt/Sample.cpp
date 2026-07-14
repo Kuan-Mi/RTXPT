@@ -674,6 +674,10 @@ void Sample::SceneLoaded( )
         m_ui.BounceCount = settings->maxBounces.value_or(m_ui.BounceCount);
         m_ui.DiffuseBounceCount = settings->maxDiffuseBounces.value_or(m_ui.DiffuseBounceCount);
         m_ui.TexLODBias = settings->textureMIPBias.value_or(m_ui.TexLODBias);
+        m_ui.UseNEE = settings->useNEE.value_or(m_ui.UseNEE);
+        m_ui.NEEType = settings->neeType.value_or(m_ui.NEEType);
+        m_ui.RealtimeSamplesPerPixel = settings->realtimeSamplesPerPixel.value_or(m_ui.RealtimeSamplesPerPixel);
+        m_ui.RealtimeAA = settings->realtimeAA.value_or(m_ui.RealtimeAA);
     }
 
     if (m_cmdLine.stopAnimations)
@@ -686,7 +690,12 @@ void Sample::SceneLoaded( )
     m_progressLoading.Set(90);
 
     if (m_materialsBaker!=nullptr) m_materialsBaker->SceneReloaded();
-    if (m_envMapBaker!=nullptr) m_envMapBaker->SceneReloaded();
+    if (m_envMapBaker!=nullptr)
+    {
+        m_envMapBaker->SceneReloaded();
+        if (settings != nullptr && settings->environmentMapResolution.has_value())
+            m_envMapBaker->SetTargetCubeResolution(settings->environmentMapResolution.value());
+    }
     if (m_lightsBaker!=nullptr) m_lightsBaker->SceneReloaded();
     if (m_ommBaker!=nullptr) m_ommBaker->SceneLoaded(*m_scene);
 

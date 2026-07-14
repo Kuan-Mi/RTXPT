@@ -360,6 +360,11 @@ void SampleSettings::Load(const Json::Value& node)
     node["maxBounces"] >> maxBounces;
     node["maxDiffuseBounces"] >> maxDiffuseBounces;
     node["textureMIPBias"] >> textureMIPBias;
+    node["useNEE"] >> useNEE;
+    node["neeType"] >> neeType;
+    node["realtimeSamplesPerPixel"] >> realtimeSamplesPerPixel;
+    node["realtimeAA"] >> realtimeAA;
+    node["environmentMapResolution"] >> environmentMapResolution;
 }
 
 std::shared_ptr<SceneGraphLeaf> GameSettings::Clone()
