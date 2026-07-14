@@ -60,6 +60,8 @@ using namespace donut::render;
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <cstdarg>
+#include <cstdio>
 
 #include <thread>
 
@@ -90,9 +92,26 @@ const char* g_windowTitle = "RTX Path Tracing v1.8.1";
 const float c_envMapRadianceScale = 1.0f / 4.0f; // used to make input 32bit float radiance fit into 16bit float range that baker supports; going lower than 1/4 causes issues with current BC6U compression algorithm when used
 
 static bool g_enableBlasDiagnostics = false;
+static bool g_dumpedTlasDiagnostics = false;
 
-#define BLAS_DIAGNOSTIC(...) \
-    do { if (g_enableBlasDiagnostics) donut::log::info(__VA_ARGS__); } while (false)
+static void BlasDiagnostic(const char* format, ...)
+{
+    if (!g_enableBlasDiagnostics)
+        return;
+    char line[4096];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(line, sizeof(line), format, args);
+    va_end(args);
+    donut::log::info("%s", line);
+    if (FILE* file = fopen("blas-diagnostics.txt", "a"))
+    {
+        fprintf(file, "%s\n", line);
+        fclose(file);
+    }
+}
+
+#define BLAS_DIAGNOSTIC(...) BlasDiagnostic(__VA_ARGS__)
 
 static const char* BlasBuildFlagsToString(nvrhi::rt::AccelStructBuildFlags flags)
 {
@@ -1163,21 +1182,24 @@ void Sample::CreateBlases(nvrhi::ICommandList* commandList)
                 bool alphaTest = false;
                 bool excludeNee = false;
                 bool skipRender = false;
+                int materialId = -1;
                 const char* materialName = "<null>";
                 if (geomIndex < mesh->geometries.size() && mesh->geometries[geomIndex] && mesh->geometries[geomIndex]->material)
                 {
                     materialName = mesh->geometries[geomIndex]->material->name.c_str();
+                    materialId = mesh->geometries[geomIndex]->material->materialID;
                     PTMaterial& materialPT = *PTMaterial::SafeCast(mesh->geometries[geomIndex]->material);
                     alphaTest = materialPT.EnableAlphaTesting;
                     excludeNee = materialPT.ExcludeFromNEE;
                     skipRender = materialPT.SkipRender;
                 }
 
-                BLAS_DIAGNOSTIC("[RTXPT][BLAS]   geom[%zu] type=Triangles flags=%s useTransform=%d material='%s' alphaTest=%d excludeNEE=%d skipRender=%d indexCount=%u indexOffset=%llu indexFormat=%d vertexCount=%u vertexOffset=%llu vertexStride=%u vertexFormat=%d hasOMM=%d ommIndexCount=%u",
+                BLAS_DIAGNOSTIC("[RTXPT][BLAS]   geom[%zu] type=Triangles flags=%s useTransform=%d material='%s' materialID=%d alphaTest=%d excludeNEE=%d skipRender=%d indexCount=%u indexOffset=%llu indexFormat=%d vertexCount=%u vertexOffset=%llu vertexStride=%u vertexFormat=%d hasOMM=%d ommIndexCount=%u",
                     geomIndex,
                     GeometryFlagsToString(geometryDesc.flags),
                     geometryDesc.useTransform ? 1 : 0,
                     materialName,
+                    materialId,
                     alphaTest ? 1 : 0,
                     excludeNee ? 1 : 0,
                     skipRender ? 1 : 0,
@@ -1340,6 +1362,7 @@ void Sample::BuildTLAS(nvrhi::ICommandList* commandList) const
     std::vector<nvrhi::rt::InstanceDesc> instances; // TODO: make this a member, avoid allocs :)
 
     uint subInstanceCount = 0;
+    uint tlasInstanceIndex = 0;
     for (const auto& instance : m_scene->GetSceneGraph()->GetMeshInstances())
     {
         const bool ommDebugViewEnabled = m_ommBaker && m_ommBaker->UIData().DebugView != OpacityMicroMapDebugView::Disabled;
@@ -1368,8 +1391,19 @@ void Sample::BuildTLAS(nvrhi::ICommandList* commandList) const
         assert(node);
         dm::affineToColumnMajor(node->GetLocalToWorldTransformFloat(), instanceDesc.transform);
 
+        if (!g_dumpedTlasDiagnostics)
+        {
+            uint32_t bits[12];
+            memcpy(bits, instanceDesc.transform, sizeof(bits));
+            BLAS_DIAGNOSTIC("[RTXPT][TLAS] index=%u instanceID=%u mesh='%s' node='%s' transform=%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X",
+                tlasInstanceIndex, instanceDesc.instanceID, mesh->name.c_str(), node->GetName().c_str(),
+                bits[0], bits[1], bits[2], bits[3], bits[4], bits[5], bits[6], bits[7], bits[8], bits[9], bits[10], bits[11]);
+        }
+        ++tlasInstanceIndex;
+
         instances.push_back(instanceDesc);
     }
+    g_dumpedTlasDiagnostics = true;
     assert (m_subInstanceCount == subInstanceCount);
     ProfilerScope ptScope(*m_profiler, m_commandList, ProfilerSection::TlasUpdate);
     commandList->beginMarker("TLAS Update");

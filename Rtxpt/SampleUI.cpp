@@ -145,7 +145,8 @@ SampleUI::SampleUI(DeviceManager* deviceManager, SampleBaseApp & baseApp, Sample
 
     // Choose which, if any, hit object extension we can use
 #if RTXPT_D3D_AGILITY_SDK_VERSION >= 619
-    m_ui.DXHitObjectExtension = (GetDevice()->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12);   // 6.9 support guarantees SER
+    m_ui.DXHitObjectExtension =
+        (GetDevice()->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12) && !cmdLine.disableSER;
     m_ui.NVAPIHitObjectExtension &= !m_ui.DXHitObjectExtension && NVAPI_SERSupported;
 #else
     m_ui.NVAPIHitObjectExtension &= NVAPI_SERSupported;  // no need to check for or attempt using HitObjectExtension if SER not supported
